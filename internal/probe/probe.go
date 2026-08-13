@@ -12,6 +12,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -250,10 +251,36 @@ func tlsVersion(v uint16) string {
 	}
 }
 
+// isTLSVerifyError decides whether the request failed only because the
+// certificate did not validate, in which case it is worth retrying without
+// verification so the report can explain why.
+//
+// The check is on error types rather than message text: macOS, Windows and
+// Linux each phrase certificate failures differently, and matching strings
+// meant the retry silently stopped happening on one of them.
 func isTLSVerifyError(err error) bool {
 	if err == nil {
 		return false
 	}
+
+	var verifyErr *tls.CertificateVerificationError
+	if errors.As(err, &verifyErr) {
+		return true
+	}
+	var unknownAuthority x509.UnknownAuthorityError
+	if errors.As(err, &unknownAuthority) {
+		return true
+	}
+	var hostname x509.HostnameError
+	if errors.As(err, &hostname) {
+		return true
+	}
+	var invalid x509.CertificateInvalidError
+	if errors.As(err, &invalid) {
+		return true
+	}
+
+	// Anything a future Go or platform verifier phrases differently.
 	msg := err.Error()
 	return strings.Contains(msg, "x509:") ||
 		strings.Contains(msg, "certificate") ||

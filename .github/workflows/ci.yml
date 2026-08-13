@@ -29,8 +29,18 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      # Job logs need a token to read through the API, so a failure here also
+      # republishes the relevant lines as annotations, which stay public.
       - name: Test
-        run: go test -race ./...
+        shell: bash
+        run: |
+          set -o pipefail
+          if ! go test -race ./... 2>&1 | tee test-output.txt; then
+            grep -E '^(--- FAIL|FAIL|panic:|.*WARNING: DATA RACE|[[:space:]]+[a-z_]+\.go:[0-9]+:)' test-output.txt \
+              | head -40 \
+              | while IFS= read -r line; do echo "::error::${{ matrix.os }}: $line"; done
+            exit 1
+          fi
 
       - name: Build
         run: go build ./cmd/qalqon
