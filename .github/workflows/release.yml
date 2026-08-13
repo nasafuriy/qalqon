@@ -1,4 +1,4 @@
-name: Release
+﻿name: Release
 
 # Pushing a tag like v0.1.0 builds binaries for every supported platform and
 # publishes them on a GitHub Release.
@@ -20,7 +20,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: 'stable'
 
       - name: Test before publishing anything
         run: go test ./...
