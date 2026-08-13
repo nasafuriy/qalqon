@@ -1,0 +1,11 @@
+[Unit]
+Description=Example application
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/example
+AmbientCapabilities=CAP_SYS_ADMIN
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

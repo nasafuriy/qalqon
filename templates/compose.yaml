@@ -1,0 +1,131 @@
+# Docker Compose rules.
+
+id: compose-privileged-container
+info:
+  name: Service runs privileged
+  severity: critical
+  description: >-
+    privileged: true hands the container almost every capability the host
+    kernel offers, including raw device access. Escaping to the host from a
+    privileged container is a well-trodden path, not a theoretical one.
+  remediation: >-
+    Remove privileged and grant only the specific capabilities needed with
+    cap_add, or run the workload outside a container if it truly needs the host.
+  reference:
+    - https://docs.docker.com/reference/compose-file/services/#privileged
+  tags: [docker, compose, privilege]
+files:
+  - docker-compose.yml
+  - docker-compose.yaml
+  - docker-compose.*.yml
+  - docker-compose.*.yaml
+  - compose.yml
+  - compose.yaml
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*privileged:\s*true\b'
+
+---
+
+id: compose-docker-socket-mount
+info:
+  name: Docker socket mounted into a container
+  severity: critical
+  description: >-
+    /var/run/docker.sock gives the container full control of the Docker
+    daemon, which is equivalent to root on the host. Any code execution inside
+    that container becomes host compromise.
+  remediation: >-
+    Use a scoped proxy such as docker-socket-proxy, or move the work to a CI
+    runner that already has the permission it needs.
+  reference:
+    - https://docs.docker.com/engine/security/
+  tags: [docker, compose, privilege, host]
+files:
+  - docker-compose.yml
+  - docker-compose.yaml
+  - docker-compose.*.yml
+  - docker-compose.*.yaml
+  - compose.yml
+  - compose.yaml
+matchers:
+  - type: regex
+    patterns:
+      - '/var/run/docker\.sock'
+
+---
+
+id: compose-host-network
+info:
+  name: Service shares the host network namespace
+  severity: high
+  description: >-
+    network_mode host removes network isolation: the container binds directly
+    onto host interfaces, so published-port rules and firewall assumptions no
+    longer apply.
+  remediation: Use the default bridge network and publish only the ports you need.
+  tags: [docker, compose, network]
+files:
+  - docker-compose.yml
+  - docker-compose.yaml
+  - docker-compose.*.yml
+  - docker-compose.*.yaml
+  - compose.yml
+  - compose.yaml
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*network_mode:\s*.*\bhost\b'
+
+---
+
+id: compose-hardcoded-password
+info:
+  name: Database password written into the compose file
+  severity: high
+  description: >-
+    A literal database password in a compose file is committed to version
+    control, copied into every clone, and lives forever in git history.
+  remediation: >-
+    Reference an environment variable instead, e.g. POSTGRES_PASSWORD=${DB_PASSWORD},
+    and keep the value in an untracked .env file or your secret manager.
+  tags: [compose, secret, credential]
+files:
+  - docker-compose.yml
+  - docker-compose.yaml
+  - docker-compose.*.yml
+  - docker-compose.*.yaml
+  - compose.yml
+  - compose.yaml
+matchers:
+  - type: regex
+    comment: values starting with $ or { are references, not literals
+    patterns:
+      - '(?im)^\s*-?\s*(?:MYSQL_ROOT_PASSWORD|MYSQL_PASSWORD|POSTGRES_PASSWORD|MONGO_INITDB_ROOT_PASSWORD|REDIS_PASSWORD|RABBITMQ_DEFAULT_PASS|DB_PASSWORD)\s*[:=]\s*[^\s${][^\s]*'
+
+---
+
+id: compose-restart-always-no-healthcheck
+info:
+  name: Service restarts forever with no health check
+  severity: info
+  description: >-
+    restart: always without a healthcheck means a container that starts but
+    never becomes usable is treated as healthy, so a broken deploy looks fine
+    from the outside.
+  remediation: Add a healthcheck so the orchestrator can tell running from working.
+  tags: [compose, reliability]
+files:
+  - docker-compose.yml
+  - docker-compose.yaml
+  - compose.yml
+  - compose.yaml
+condition: and
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*restart:\s*(?:always|unless-stopped)\b'
+  - type: absent
+    patterns:
+      - '(?im)^\s*healthcheck:'

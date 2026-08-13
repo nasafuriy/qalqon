@@ -1,0 +1,150 @@
+# Terraform and OpenTofu rules.
+
+id: terraform-security-group-open-to-world
+info:
+  name: Security group open to the whole internet
+  severity: high
+  description: >-
+    An ingress rule with 0.0.0.0/0 exposes the port to every host on the
+    internet. On an administrative port such as 22, 3389, 3306 or 6379 this is
+    how instances get compromised within hours of being created.
+  remediation: >-
+    Restrict cidr_blocks to the ranges that need access, or put the workload
+    behind a load balancer or bastion.
+  reference:
+    - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/security_group
+  tags: [terraform, aws, network, exposure]
+files:
+  - "*.tf"
+prefilter: ["0.0.0.0/0", "::/0"]
+condition: and
+matchers:
+  - type: regex
+    context: true
+    patterns:
+      - '(?is)resource\s+"[a-z_]*security_group'
+  - type: regex
+    patterns:
+      - '(?im)^\s*cidr_blocks\s*=\s*\[[^\]]*"0\.0\.0\.0/0"'
+      - '(?im)^\s*ipv6_cidr_blocks\s*=\s*\[[^\]]*"::/0"'
+
+---
+
+id: terraform-public-storage-bucket
+info:
+  name: Storage bucket granted public access
+  severity: critical
+  description: >-
+    A public-read ACL makes every object in the bucket readable by anyone who
+    learns the URL. Publicly exposed buckets remain one of the most common
+    causes of large data leaks.
+  remediation: >-
+    Remove the public ACL and serve objects through a CDN with signed URLs.
+    On AWS also enable the account-level public access block.
+  tags: [terraform, aws, storage, exposure]
+files:
+  - "*.tf"
+prefilter: [public-read, public-read-write, allUsers]
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*acl\s*=\s*"public-read(?:-write)?"'
+      - '(?im)"allUsers"'
+
+---
+
+id: terraform-hardcoded-credential
+info:
+  name: Credential written into Terraform source
+  severity: critical
+  description: >-
+    A literal secret in a .tf file is committed to version control and copied
+    into every clone. Terraform also writes provider credentials into state,
+    so this usually means the state file is sensitive too.
+  remediation: >-
+    Use variables fed from the environment, or a secret manager data source.
+    Never place a credential in a committed .tf file.
+  tags: [terraform, secret, credential]
+files:
+  - "*.tf"
+matchers:
+  - type: regex
+    comment: values starting with var. or a $ reference are not literals
+    patterns:
+      - '(?im)^\s*(?:access_key|secret_key|password|token|client_secret|private_key)\s*=\s*"[^"${][^"]{7,}"'
+
+---
+
+id: terraform-unencrypted-storage
+info:
+  name: Storage created without encryption at rest
+  severity: medium
+  description: >-
+    Encryption at rest is a single line of configuration and protects against
+    disk-level exposure, snapshot sharing and backup theft. Leaving it off is
+    almost never a deliberate trade-off.
+  remediation: Set encrypted = true, or attach the provider's encryption configuration block.
+  tags: [terraform, aws, encryption, storage]
+files:
+  - "*.tf"
+condition: and
+matchers:
+  - type: regex
+    context: true
+    patterns:
+      - '(?is)resource\s+"aws_(?:ebs_volume|rds_cluster|db_instance)"'
+  - type: absent
+    patterns:
+      - '(?im)^\s*(?:storage_)?encrypted\s*=\s*true'
+
+---
+
+id: terraform-plaintext-state-backend
+info:
+  name: Remote state backend without encryption
+  severity: medium
+  description: >-
+    Terraform state contains every attribute of every resource, including
+    generated passwords and keys. An unencrypted backend leaves all of it
+    readable to anyone with bucket access.
+  remediation: Set encrypt = true on the S3 backend, and restrict who can read the bucket.
+  reference:
+    - https://developer.hashicorp.com/terraform/language/settings/backends/s3
+  tags: [terraform, state, encryption]
+files:
+  - "*.tf"
+condition: and
+matchers:
+  - type: regex
+    context: true
+    patterns:
+      - '(?is)backend\s+"s3"\s*\{'
+  - type: absent
+    patterns:
+      - '(?im)^\s*encrypt\s*=\s*true'
+
+---
+
+id: terraform-iam-wildcard-policy
+info:
+  name: IAM policy grants every action
+  severity: high
+  description: >-
+    An policy statement with Action "*" on Resource "*" grants full control of
+    the account. Any credential holding it becomes a total compromise.
+  remediation: List the specific actions and resources the principal needs.
+  tags: [terraform, aws, iam, least-privilege]
+files:
+  - "*.tf"
+  - "*.tf.json"
+  - "*.json"
+prefilter: ['"Action"', 'actions']
+condition: and
+matchers:
+  - type: regex
+    context: true
+    patterns:
+      - '(?i)"?Effect"?\s*[:=]\s*"Allow"'
+  - type: regex
+    patterns:
+      - '(?i)"?Action"?\s*[:=]\s*(?:\[\s*)?"\*"'

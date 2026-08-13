@@ -1,0 +1,145 @@
+# GitHub Actions workflow rules.
+
+id: actions-script-injection
+info:
+  name: Untrusted input interpolated into a run step
+  severity: critical
+  description: >-
+    Expressions such as github.event.issue.title are substituted into the
+    shell command before it runs, so anyone who can open an issue or a pull
+    request controls part of that command. This is the most reliably exploited
+    weakness in GitHub Actions.
+  remediation: >-
+    Pass the value through an env: variable and reference it as "$VAR" inside
+    the script, so the shell never sees attacker-controlled text as code.
+  reference:
+    - https://securitylab.github.com/resources/github-actions-untrusted-input/
+  tags: [github-actions, ci, injection]
+files:
+  - .github/workflows/*.yml
+  - .github/workflows/*.yaml
+matchers:
+  - type: regex
+    comment: >-
+      The interpolation has to be on the run: line itself. Binding the same
+      expression to env: is the recommended fix, so matching it anywhere in the
+      file would flag correct workflows. This does mean an expression buried
+      inside a "run: |" block is not caught by this rule.
+    patterns:
+      - '(?im)^\s*run:[^\n]*\$\{\{\s*github\.event\.[A-Za-z_.]*(?:title|body|message|ref|label|name|email|login|description)[^}]*\}\}'
+      - '(?im)^\s*run:[^\n]*\$\{\{\s*github\.head_ref\s*\}\}'
+
+---
+
+id: actions-pull-request-target-checkout
+info:
+  name: pull_request_target checks out untrusted code
+  severity: critical
+  description: >-
+    pull_request_target runs with a writable token and repository secrets. If
+    the workflow then checks out the pull request head, it executes code an
+    outsider wrote with those credentials in scope, which is a full repository
+    takeover.
+  remediation: >-
+    Use the pull_request trigger, or keep pull_request_target but never check
+    out or execute the contributor's code in that job.
+  reference:
+    - https://securitylab.github.com/resources/github-actions-preventing-pwn-requests/
+  tags: [github-actions, ci, supply-chain]
+files:
+  - .github/workflows/*.yml
+  - .github/workflows/*.yaml
+condition: and
+matchers:
+  - type: regex
+    context: true
+    patterns:
+      - '(?im)^\s*pull_request_target\s*:'
+  - type: regex
+    context: true
+    patterns:
+      - '(?im)uses:\s*actions/checkout@'
+  - type: regex
+    comment: this is the line that actually does the damage
+    patterns:
+      - '(?im)ref:\s*\$\{\{\s*github\.event\.pull_request\.head'
+
+---
+
+id: actions-unpinned-version
+info:
+  name: Action pinned to a mutable tag
+  severity: low
+  description: >-
+    A tag like @v4 can be moved to point at different code at any time. If the
+    action's repository is ever compromised, every workflow using the tag picks
+    up the change on the next run. Pinning a commit SHA removes that path.
+  remediation: >-
+    Pin the full 40-character commit SHA, with the version in a trailing
+    comment. This matters most for third-party actions; first-party actions/*
+    carry less risk but the same mechanism.
+  reference:
+    - https://docs.github.com/actions/security-for-github-actions/security-guides/security-hardening-for-github-actions
+  tags: [github-actions, ci, supply-chain]
+files:
+  - .github/workflows/*.yml
+  - .github/workflows/*.yaml
+matchers:
+  - type: regex
+    comment: a short ref is a tag; a 40-character SHA will not match
+    patterns:
+      - '(?im)^\s*-?\s*uses:\s*[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+@v?[0-9][A-Za-z0-9_.-]{0,9}\s*$'
+
+---
+
+id: actions-excessive-token-permissions
+info:
+  name: Workflow does not restrict the GITHUB_TOKEN
+  severity: medium
+  description: >-
+    Without an explicit permissions block the token inherits the repository
+    default, which is often write access to contents. Any compromised step
+    then has enough rights to push code or publish a release.
+  remediation: >-
+    Add "permissions: contents: read" at the top of the workflow and widen it
+    only in the jobs that genuinely need more.
+  reference:
+    - https://docs.github.com/actions/security-for-github-actions/security-guides/automatic-token-authentication
+  tags: [github-actions, ci, least-privilege]
+files:
+  - .github/workflows/*.yml
+  - .github/workflows/*.yaml
+condition: and
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*jobs\s*:'
+  - type: absent
+    patterns:
+      - '(?im)^\s*permissions\s*:'
+
+---
+
+id: actions-self-hosted-on-public-trigger
+info:
+  name: Self-hosted runner reachable from a public trigger
+  severity: high
+  description: >-
+    A self-hosted runner keeps state between jobs. Combined with a trigger
+    that outsiders can fire, a contributor can run code on your own hardware
+    and leave something behind for the next job.
+  remediation: >-
+    Use GitHub-hosted runners for anything triggered by outside contributors,
+    or require approval for first-time contributors.
+  tags: [github-actions, ci, runner]
+files:
+  - .github/workflows/*.yml
+  - .github/workflows/*.yaml
+condition: and
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*runs-on:\s*.*self-hosted'
+  - type: regex
+    patterns:
+      - '(?im)^\s*(?:pull_request|pull_request_target|issue_comment)\s*:'

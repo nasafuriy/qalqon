@@ -1,0 +1,74 @@
+# systemd service units.
+
+id: systemd-service-runs-as-root
+info:
+  name: Service unit runs as root
+  severity: medium
+  description: >-
+    A unit with no User= runs as root. Most daemons do not need it, and the
+    ones that briefly do can drop privileges through the unit rather than
+    keeping them for their whole lifetime.
+  remediation: >-
+    Add "User=" and "Group=" for a dedicated account. If the service needs a
+    privileged port, use AmbientCapabilities=CAP_NET_BIND_SERVICE instead of root.
+  reference:
+    - https://www.freedesktop.org/software/systemd/man/systemd.exec.html
+  tags: [systemd, linux, privilege]
+files:
+  - "*.service"
+condition: and
+matchers:
+  - type: regex
+    context: true
+    patterns:
+      - '(?im)^\s*\[Service\]'
+  - type: absent
+    patterns:
+      - '(?im)^\s*User\s*='
+
+---
+
+id: systemd-missing-sandboxing
+info:
+  name: Service unit has no sandboxing directives
+  severity: low
+  description: >-
+    systemd can confine a service with a few lines — a private /tmp, a
+    read-only system tree, no new privileges. These are among the cheapest
+    hardening measures available on Linux and most units simply omit them.
+  remediation: >-
+    Add NoNewPrivileges=yes, PrivateTmp=yes and ProtectSystem=strict, then
+    relax individually if the service breaks.
+  reference:
+    - https://www.freedesktop.org/software/systemd/man/systemd.exec.html
+  tags: [systemd, linux, hardening]
+files:
+  - "*.service"
+condition: and
+matchers:
+  - type: regex
+    context: true
+    patterns:
+      - '(?im)^\s*\[Service\]'
+  - type: absent
+    patterns:
+      - '(?im)^\s*NoNewPrivileges\s*=\s*(?:yes|true|1)'
+
+---
+
+id: systemd-dangerous-capabilities
+info:
+  name: Service granted sweeping capabilities
+  severity: high
+  description: >-
+    CAP_SYS_ADMIN is close to full root, and CAP_SYS_PTRACE lets the service
+    inspect and modify other processes. Granting either largely undoes running
+    the service as an unprivileged user.
+  remediation: Grant only the specific capabilities required, and drop the rest.
+  tags: [systemd, linux, privilege]
+files:
+  - "*.service"
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*(?:Ambient|Bounding)?Capabilit(?:y|ies)[A-Za-z]*\s*=[^\n]*CAP_SYS_(?:ADMIN|PTRACE|MODULE|RAWIO)'

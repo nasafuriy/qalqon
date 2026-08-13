@@ -1,0 +1,9 @@
+# Fixture: deliberately unsafe sshd configuration.
+Port 22
+Protocol 2,1
+PermitRootLogin yes
+PasswordAuthentication yes
+PermitEmptyPasswords yes
+X11Forwarding yes
+Ciphers aes128-cbc,3des-cbc
+MACs hmac-md5

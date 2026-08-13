@@ -1,0 +1,117 @@
+# Apache httpd configuration.
+
+id: apache-directory-listing
+info:
+  name: Directory listing enabled
+  severity: medium
+  description: >-
+    Options Indexes makes Apache render a file listing when no index page
+    exists. Listings routinely expose backups, dumps and configuration that
+    nobody intended to publish.
+  remediation: 'Use "Options -Indexes", and set it at the server level so vhosts inherit it.'
+  tags: [apache, httpd, disclosure]
+files:
+  - httpd.conf
+  - apache2.conf
+  - "*.htaccess"
+  - .htaccess
+  - sites-available/*
+  - sites-enabled/*
+  - conf.d/*.conf
+matchers:
+  - type: regex
+    comment: a leading minus disables it, so require a plus or a bare word
+      after Options
+    patterns:
+      - '(?im)^\s*Options\s+[^\n-]*\bIndexes\b'
+
+---
+
+id: apache-server-tokens-verbose
+info:
+  name: Apache advertises its version
+  severity: low
+  description: >-
+    The default ServerTokens setting puts the httpd version, and often the
+    module versions, into every response and error page.
+  remediation: 'Set "ServerTokens Prod" and "ServerSignature Off".'
+  tags: [apache, httpd, disclosure]
+files:
+  - httpd.conf
+  - apache2.conf
+  - conf.d/*.conf
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*ServerTokens\s+(?:Full|OS|Minor|Minimal|Major)\b'
+      - '(?im)^\s*ServerSignature\s+On\b'
+
+---
+
+id: apache-weak-ssl-protocols
+info:
+  name: Obsolete TLS versions enabled
+  severity: high
+  description: >-
+    SSLv2, SSLv3, TLS 1.0 and TLS 1.1 carry known protocol weaknesses and are
+    already refused by current browsers.
+  remediation: 'Use "SSLProtocol -all +TLSv1.2 +TLSv1.3".'
+  reference:
+    - https://ssl-config.mozilla.org/
+  tags: [apache, httpd, tls, crypto]
+files:
+  - httpd.conf
+  - apache2.conf
+  - ssl.conf
+  - sites-available/*
+  - sites-enabled/*
+  - conf.d/*.conf
+matchers:
+  - type: regex
+    comment: only flag versions being switched on, not ones being removed
+    patterns:
+      - '(?im)^\s*SSLProtocol[^\n]*\+\s*(?:SSLv[23]|TLSv1\.1|TLSv1[^.\d])'
+      - '(?im)^\s*SSLProtocol\s+all\s*$'
+
+---
+
+id: apache-trace-method
+info:
+  name: TRACE method left enabled
+  severity: low
+  description: >-
+    TRACE echoes the request back, including headers. It has no legitimate use
+    in production and has historically been chained into credential theft.
+  remediation: 'Set "TraceEnable Off".'
+  tags: [apache, httpd, hardening]
+files:
+  - httpd.conf
+  - apache2.conf
+  - conf.d/*.conf
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*TraceEnable\s+On\b'
+
+---
+
+id: apache-allow-override-all
+info:
+  name: AllowOverride All delegates configuration to .htaccess
+  severity: low
+  description: >-
+    AllowOverride All lets anyone who can write into the document root change
+    server behaviour through .htaccess, and costs a filesystem check on every
+    request in every parent directory.
+  remediation: 'Use "AllowOverride None" and move the rules into the main configuration.'
+  tags: [apache, httpd, hardening, performance]
+files:
+  - httpd.conf
+  - apache2.conf
+  - sites-available/*
+  - sites-enabled/*
+  - conf.d/*.conf
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*AllowOverride\s+All\b'

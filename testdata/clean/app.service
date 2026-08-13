@@ -1,0 +1,16 @@
+[Unit]
+Description=Example application
+After=network.target
+
+[Service]
+User=example
+Group=example
+ExecStart=/usr/bin/example
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

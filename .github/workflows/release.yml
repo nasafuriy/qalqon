@@ -1,0 +1,91 @@
+name: Release
+
+# Pushing a tag like v0.1.0 builds binaries for every supported platform and
+# publishes them on a GitHub Release.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Test before publishing anything
+        run: go test ./...
+
+      - name: Build every platform
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          mkdir -p dist
+          targets="linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64"
+
+          for target in $targets; do
+            os="${target%/*}"
+            arch="${target#*/}"
+            name="qalqon_${TAG}_${os}_${arch}"
+            out="dist/$name"
+
+            binary="qalqon"
+            if [ "$os" = "windows" ]; then binary="qalqon.exe"; fi
+
+            echo "building $name"
+            CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" \
+              go build -trimpath -ldflags "-s -w -X main.version=${TAG}" \
+              -o "build/$binary" ./cmd/qalqon
+
+            if [ "$os" = "windows" ]; then
+              (cd build && zip -q "../${out}.zip" "$binary")
+            else
+              tar -czf "${out}.tar.gz" -C build "$binary"
+            fi
+            rm -rf build
+          done
+
+          (cd dist && sha256sum * > checksums.txt)
+          ls -la dist
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          cat > notes.md <<EOF
+          ## Qalqon $TAG
+
+          A single binary that scans a repository for insecure Docker, Compose,
+          Kubernetes, nginx and GitHub Actions configuration, and for credentials
+          that should not have been committed.
+
+          ### Install
+
+          \`\`\`bash
+          go install github.com/${{ github.repository }}/cmd/qalqon@$TAG
+          \`\`\`
+
+          Or download the archive for your platform below. The template library is
+          compiled in, so there is nothing else to install and no network access
+          is needed to scan.
+
+          ### Verify
+
+          \`\`\`bash
+          sha256sum -c checksums.txt
+          \`\`\`
+          EOF
+
+          gh release create "$TAG" dist/* \
+            --title "Qalqon $TAG" \
+            --notes-file notes.md

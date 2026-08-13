@@ -1,0 +1,152 @@
+# Dockerfile rules.
+#
+# Each document below is one template. Patterns are Go RE2, which has no
+# lookahead or lookbehind — write them positively.
+
+id: docker-missing-user
+info:
+  name: Image runs as root
+  severity: high
+  description: >-
+    The Dockerfile never switches to an unprivileged user, so the container
+    process runs as root. If the process is compromised, the attacker starts
+    with root inside the container and a much shorter path out of it.
+  remediation: Add a non-root USER before the final CMD or ENTRYPOINT.
+  reference:
+    - https://docs.docker.com/develop/develop-images/instructions/#user
+  tags: [docker, container, privilege]
+files:
+  - Dockerfile
+  - Dockerfile.*
+  - "*.dockerfile"
+  - "*.Dockerfile"
+condition: and
+matchers:
+  - type: regex
+    comment: only look at real Dockerfiles
+    patterns:
+      - '(?im)^\s*FROM\s+\S+'
+  - type: absent
+    patterns:
+      - '(?im)^\s*USER\s+\S+'
+
+---
+
+id: docker-latest-tag
+info:
+  name: Base image pinned to :latest
+  severity: medium
+  description: >-
+    A :latest base image makes the build unreproducible — the same Dockerfile
+    produces different images over time, and a rebuild can silently pull in a
+    breaking or backdoored upstream change.
+  remediation: Pin an explicit version tag, or better, a digest with FROM image@sha256:...
+  reference:
+    - https://docs.docker.com/build/building/best-practices/
+  tags: [docker, supply-chain, reproducibility]
+files:
+  - Dockerfile
+  - Dockerfile.*
+  - "*.dockerfile"
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*FROM\s+\S+:latest\b'
+
+---
+
+id: docker-secret-in-layer
+info:
+  name: Secret baked into an image layer
+  severity: critical
+  description: >-
+    A literal credential in ENV or ARG is written into the image layer and
+    stays readable to anyone who can pull the image, even if a later layer
+    deletes it. Image history is not a secret store.
+  remediation: >-
+    Pass secrets at runtime, or use BuildKit secret mounts
+    (RUN --mount=type=secret). Never bake a literal value into the image.
+  reference:
+    - https://docs.docker.com/build/building/secrets/
+  tags: [docker, secret, credential]
+files:
+  - Dockerfile
+  - Dockerfile.*
+  - "*.dockerfile"
+matchers:
+  - type: regex
+    comment: requires a literal value, so ${VAR} references are ignored
+    patterns:
+      - '(?im)^\s*(?:ENV|ARG)\s+[A-Za-z0-9_]*(?:PASSWORD|PASSWD|SECRET|TOKEN|APIKEY|API_KEY|ACCESS_KEY|PRIVATE_KEY)[A-Za-z0-9_]*[\s=]+[^\s$][^\s]{5,}'
+
+---
+
+id: docker-curl-pipe-shell
+info:
+  name: Remote script piped straight into a shell
+  severity: medium
+  description: >-
+    Downloading a script and executing it in one step means the build trusts
+    whatever that URL serves at that moment, with no chance to verify it. A
+    compromised or hijacked host owns your build.
+  remediation: >-
+    Download to a file, verify a checksum or signature, then run it. Better
+    still, install from a package manager with pinned versions.
+  reference:
+    - https://owasp.org/www-project-top-ten/
+  tags: [docker, supply-chain]
+files:
+  - Dockerfile
+  - Dockerfile.*
+  - "*.dockerfile"
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*RUN\s+.*(?:curl|wget)[^|]*\|\s*(?:sudo\s+)?(?:ba|z|k)?sh\b'
+
+---
+
+id: docker-add-remote-url
+info:
+  name: ADD used to fetch a remote URL
+  severity: low
+  description: >-
+    ADD with a URL downloads over the network during the build without
+    verifying anything, and unlike COPY it also auto-extracts archives, which
+    has produced path-traversal bugs.
+  remediation: Use COPY for local files, and a verified RUN curl step for remote ones.
+  reference:
+    - https://docs.docker.com/build/building/best-practices/#add-or-copy
+  tags: [docker, supply-chain]
+files:
+  - Dockerfile
+  - Dockerfile.*
+  - "*.dockerfile"
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*ADD\s+https?://'
+
+---
+
+id: docker-apt-no-version-pin
+info:
+  name: Packages installed without version pins
+  severity: low
+  description: >-
+    apt-get install without version pins resolves differently on every build,
+    so an image that passed review is not the image that ships next month.
+  remediation: Pin versions (package=1.2.3) or accept the drift deliberately.
+  tags: [docker, reproducibility]
+files:
+  - Dockerfile
+  - Dockerfile.*
+  - "*.dockerfile"
+condition: and
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*RUN\s+.*apt-get\s+install'
+  - type: absent
+    patterns:
+      - '(?im)apt-get\s+install[^\n]*[A-Za-z0-9_.+-]+='

@@ -1,0 +1,116 @@
+# nginx configuration rules.
+#
+# The file globs are broad, so every rule also requires an nginx-specific
+# directive before it fires. That keeps unrelated .conf files quiet.
+
+id: nginx-weak-tls-protocols
+info:
+  name: Obsolete TLS versions enabled
+  severity: high
+  description: >-
+    SSLv2, SSLv3, TLS 1.0 and TLS 1.1 are all deprecated and carry known
+    protocol-level weaknesses. Browsers already refuse them, so leaving them
+    enabled only helps an attacker downgrade a connection.
+  remediation: 'Use: ssl_protocols TLSv1.2 TLSv1.3;'
+  reference:
+    - https://ssl-config.mozilla.org/
+  tags: [nginx, tls, crypto]
+files:
+  - nginx.conf
+  - "*.nginx.conf"
+  - "*.conf"
+  - sites-available/*
+  - sites-enabled/*
+  - conf.d/*.conf
+matchers:
+  - type: regex
+    comment: the trailing class avoids matching TLSv1.2 and TLSv1.3
+    patterns:
+      - '(?im)^\s*ssl_protocols[^;]*\bSSLv[23]\b'
+      - '(?im)^\s*ssl_protocols[^;]*\bTLSv1\.1\b'
+      - '(?im)^\s*ssl_protocols[^;]*\bTLSv1[^.\d]'
+
+---
+
+id: nginx-missing-hsts
+info:
+  name: TLS server does not send HSTS
+  severity: medium
+  description: >-
+    Without Strict-Transport-Security, a browser that has only ever seen the
+    site over HTTPS will still try HTTP first on the next visit, which leaves
+    room for an active network attacker to strip TLS.
+  remediation: 'Add: add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;'
+  reference:
+    - https://developer.mozilla.org/docs/Web/HTTP/Headers/Strict-Transport-Security
+  tags: [nginx, tls, headers]
+files:
+  - nginx.conf
+  - "*.nginx.conf"
+  - "*.conf"
+  - sites-available/*
+  - sites-enabled/*
+  - conf.d/*.conf
+condition: and
+matchers:
+  - type: regex
+    comment: only TLS servers
+    patterns:
+      - '(?im)^\s*listen[^;]*\bssl\b'
+  - type: absent
+    patterns:
+      - '(?i)Strict-Transport-Security'
+
+---
+
+id: nginx-server-tokens-on
+info:
+  name: nginx advertises its version
+  severity: low
+  description: >-
+    By default nginx puts its exact version in the Server header and on error
+    pages. That hands an attacker a free version match against known
+    vulnerabilities.
+  remediation: 'Add: server_tokens off;'
+  tags: [nginx, headers, hardening]
+files:
+  - nginx.conf
+  - "*.nginx.conf"
+  - "*.conf"
+  - conf.d/*.conf
+condition: and
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*server\s*\{'
+  - type: absent
+    patterns:
+      - '(?im)^\s*server_tokens\s+off\s*;'
+
+---
+
+id: nginx-proxy-missing-host-header
+info:
+  name: Reverse proxy does not forward the Host header
+  severity: low
+  description: >-
+    A proxy_pass without proxy_set_header Host sends nginx's own idea of the
+    host upstream, which breaks virtual hosting and absolute redirects, and
+    occasionally enables host-header confusion.
+  remediation: 'Add: proxy_set_header Host $host;'
+  tags: [nginx, proxy]
+files:
+  - nginx.conf
+  - "*.nginx.conf"
+  - "*.conf"
+  - sites-available/*
+  - sites-enabled/*
+  - conf.d/*.conf
+condition: and
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*proxy_pass\s+'
+  - type: absent
+    patterns:
+      - '(?im)^\s*proxy_set_header\s+Host\b'

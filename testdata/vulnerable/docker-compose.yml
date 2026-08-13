@@ -1,0 +1,10 @@
+services:
+  db:
+    image: postgres:16
+    privileged: true
+    network_mode: host
+    restart: always
+    environment:
+      POSTGRES_PASSWORD: hunter2fixture
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock

@@ -1,0 +1,17 @@
+name: Fixture — safe
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Greet the contributor
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: echo "Thanks $TITLE"

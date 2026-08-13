@@ -1,0 +1,13 @@
+# Store LF in the repository whatever the contributor's platform does locally.
+* text=auto eol=lf
+
+# Binary assets must never be normalised.
+*.png binary
+*.jpg binary
+*.ico binary
+
+# Fixtures are the test suite, not documentation or vendored code — keep them
+# in the language statistics and in diffs.
+testdata/** linguist-detectable=true
+
+docs/*.png linguist-documentation=true

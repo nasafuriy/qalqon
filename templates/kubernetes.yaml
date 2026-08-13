@@ -1,0 +1,197 @@
+# Kubernetes workload rules.
+#
+# Every rule first confirms the document really is a workload manifest, so a
+# stray "privileged: true" in unrelated YAML does not fire.
+
+id: k8s-privileged-container
+info:
+  name: Container requests privileged mode
+  severity: critical
+  description: >-
+    securityContext.privileged disables almost every container boundary the
+    kernel provides. A privileged pod is, for practical purposes, root on the
+    node it lands on.
+  remediation: >-
+    Drop privileged and add only the capabilities the workload actually needs
+    under securityContext.capabilities.add.
+  reference:
+    - https://kubernetes.io/docs/concepts/security/pod-security-standards/
+  tags: [kubernetes, k8s, privilege]
+files:
+  - "*.yaml"
+  - "*.yml"
+exclude:
+  - "*.schema.yaml"
+condition: and
+matchers:
+  - type: regex
+    context: true
+    patterns:
+      - '(?im)^\s*kind:\s*(?:Pod|Deployment|StatefulSet|DaemonSet|Job|CronJob|ReplicaSet|ReplicationController)\b'
+  - type: regex
+    patterns:
+      - '(?im)^\s*privileged:\s*true\b'
+
+---
+
+id: k8s-allow-privilege-escalation
+info:
+  name: Privilege escalation left enabled
+  severity: high
+  description: >-
+    allowPrivilegeEscalation lets a process gain more privileges than its
+    parent, which is exactly what an attacker needs after landing code
+    execution in the container.
+  remediation: Set allowPrivilegeEscalation false in the container securityContext.
+  reference:
+    - https://kubernetes.io/docs/tasks/configure-pod-container/security-context/
+  tags: [kubernetes, k8s, privilege]
+files:
+  - "*.yaml"
+  - "*.yml"
+condition: and
+matchers:
+  - type: regex
+    context: true
+    patterns:
+      - '(?im)^\s*kind:\s*(?:Pod|Deployment|StatefulSet|DaemonSet|Job|CronJob|ReplicaSet)\b'
+  - type: regex
+    patterns:
+      - '(?im)^\s*allowPrivilegeEscalation:\s*true\b'
+
+---
+
+id: k8s-host-namespace
+info:
+  name: Pod shares a host namespace
+  severity: high
+  description: >-
+    hostNetwork, hostPID or hostIPC remove the isolation that makes a pod a
+    pod. With hostPID a container can see and signal every process on the
+    node; with hostNetwork it binds straight onto node interfaces.
+  remediation: Remove the host namespace flags unless the workload is a node agent that genuinely needs them.
+  tags: [kubernetes, k8s, isolation]
+files:
+  - "*.yaml"
+  - "*.yml"
+condition: and
+matchers:
+  - type: regex
+    context: true
+    patterns:
+      - '(?im)^\s*kind:\s*(?:Pod|Deployment|StatefulSet|DaemonSet|Job|CronJob|ReplicaSet)\b'
+  - type: regex
+    patterns:
+      - '(?im)^\s*host(?:Network|PID|IPC):\s*true\b'
+
+---
+
+id: k8s-host-path-volume
+info:
+  name: hostPath volume mounted from the node
+  severity: high
+  description: >-
+    A hostPath volume reaches out of the container into the node filesystem.
+    Depending on the path and the mount mode, this ranges from an information
+    leak to a direct route to node compromise.
+  remediation: >-
+    Use a PersistentVolumeClaim, configMap, secret or emptyDir. If hostPath is
+    unavoidable, mount it read-only and scope it as narrowly as possible.
+  tags: [kubernetes, k8s, storage, isolation]
+files:
+  - "*.yaml"
+  - "*.yml"
+condition: and
+matchers:
+  - type: regex
+    context: true
+    patterns:
+      - '(?im)^\s*kind:\s*(?:Pod|Deployment|StatefulSet|DaemonSet|Job|CronJob|ReplicaSet)\b'
+  - type: regex
+    patterns:
+      - '(?im)^\s*hostPath:'
+
+---
+
+id: k8s-container-runs-as-root
+info:
+  name: Workload does not require a non-root user
+  severity: medium
+  description: >-
+    Without runAsNonRoot, the container runs as whatever user the image
+    defaults to, which is usually root. The Restricted Pod Security Standard
+    requires this to be set.
+  remediation: Set securityContext.runAsNonRoot true, and runAsUser to a non-zero uid.
+  reference:
+    - https://kubernetes.io/docs/concepts/security/pod-security-standards/
+  tags: [kubernetes, k8s, privilege]
+files:
+  - "*.yaml"
+  - "*.yml"
+condition: and
+matchers:
+  - type: regex
+    context: true
+    patterns:
+      - '(?im)^\s*kind:\s*(?:Pod|Deployment|StatefulSet|DaemonSet|Job|CronJob)\b'
+  - type: regex
+    patterns:
+      - '(?im)^\s*containers:'
+  - type: absent
+    patterns:
+      - '(?im)^\s*runAsNonRoot:\s*true\b'
+
+---
+
+id: k8s-missing-resource-limits
+info:
+  name: Container has no resource limits
+  severity: medium
+  description: >-
+    A container without limits can consume every CPU cycle and byte of memory
+    on its node, taking unrelated workloads down with it. This is the most
+    common cause of a single bad deploy becoming a cluster-wide outage.
+  remediation: Set resources.limits for cpu and memory, and matching requests.
+  reference:
+    - https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+  tags: [kubernetes, k8s, reliability]
+files:
+  - "*.yaml"
+  - "*.yml"
+condition: and
+matchers:
+  - type: regex
+    context: true
+    patterns:
+      - '(?im)^\s*kind:\s*(?:Pod|Deployment|StatefulSet|DaemonSet|Job|CronJob)\b'
+  - type: regex
+    patterns:
+      - '(?im)^\s*containers:'
+  - type: absent
+    patterns:
+      - '(?im)^\s*limits:'
+
+---
+
+id: k8s-image-latest-tag
+info:
+  name: Workload image pinned to :latest
+  severity: medium
+  description: >-
+    With :latest, what runs after a pod restart is whatever the registry
+    serves at that moment. Rollbacks stop being meaningful because the tag no
+    longer identifies a build.
+  remediation: Pin an immutable tag or a digest.
+  tags: [kubernetes, k8s, supply-chain]
+files:
+  - "*.yaml"
+  - "*.yml"
+condition: and
+matchers:
+  - type: regex
+    context: true
+    patterns:
+      - '(?im)^\s*kind:\s*(?:Pod|Deployment|StatefulSet|DaemonSet|Job|CronJob)\b'
+  - type: regex
+    patterns:
+      - '(?im)^\s*-?\s*image:\s*\S+:latest\b'

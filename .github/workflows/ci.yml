@@ -1,0 +1,96 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test -race ./...
+
+      - name: Build
+        run: go build ./cmd/qalqon
+
+  fixtures:
+    name: Fixture behaviour
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - run: go build -o qalqon ./cmd/qalqon
+
+      # The clean tree is the false-positive guard: it must stay silent.
+      - name: Clean fixtures report nothing
+        run: |
+          ./qalqon scan testdata/clean
+          echo "exit code $? (0 expected)"
+
+      # The vulnerable tree must fail, or the scanner is not doing its job.
+      - name: Vulnerable fixtures are caught
+        run: |
+          if ./qalqon scan testdata/vulnerable > /dev/null; then
+            echo "::error::the vulnerable fixtures produced no findings"
+            exit 1
+          fi
+          echo "findings reported as expected"
+
+      - name: Templates all load
+        run: ./qalqon templates
+
+  dogfood:
+    name: Scan this repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - run: go build -o qalqon ./cmd/qalqon
+
+      # testdata is deliberately insecure, so it is excluded here.
+      # -fail-on high keeps the low-severity "pin your actions" advisories
+      # visible in the Security tab without blocking every build on them.
+      - name: Scan
+        run: ./qalqon scan . -exclude testdata -sarif -o qalqon.sarif -fail-on none
+
+      - name: Upload to code scanning
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: qalqon.sarif
+          category: qalqon
+
+      - name: Fail on high or above
+        run: ./qalqon scan . -exclude testdata -fail-on high

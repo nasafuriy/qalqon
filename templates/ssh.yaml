@@ -1,0 +1,137 @@
+# OpenSSH server configuration.
+#
+# Directives are matched at the start of a line so commented-out examples in
+# the shipped sshd_config do not count.
+
+id: sshd-permit-root-login
+info:
+  name: Root can log in over SSH
+  severity: high
+  description: >-
+    PermitRootLogin yes lets an attacker aim every guess at a single account
+    that exists on every machine and already has full privileges. It also
+    destroys attribution, because every action is logged as root.
+  remediation: >-
+    Set "PermitRootLogin no" and log in as a normal user, escalating with sudo.
+    If automation needs root, "prohibit-password" with a key is the compromise.
+  reference:
+    - https://man.openbsd.org/sshd_config
+  tags: [ssh, sshd, privilege, hardening]
+files:
+  - sshd_config
+  - sshd_config.d/*.conf
+  - "*/sshd_config"
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*PermitRootLogin\s+(?:yes|without-password)\b'
+
+---
+
+id: sshd-password-authentication
+info:
+  name: Password authentication enabled
+  severity: medium
+  description: >-
+    Passwords can be guessed, and an internet-facing SSH port sees continuous
+    automated attempts. Public keys remove that entire class of attack.
+  remediation: >-
+    Set "PasswordAuthentication no" and "KbdInteractiveAuthentication no" once
+    every user has a key installed — check before you disconnect.
+  tags: [ssh, sshd, authentication]
+files:
+  - sshd_config
+  - sshd_config.d/*.conf
+  - "*/sshd_config"
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*PasswordAuthentication\s+yes\b'
+
+---
+
+id: sshd-empty-passwords
+info:
+  name: Empty passwords accepted
+  severity: critical
+  description: >-
+    PermitEmptyPasswords yes allows login to any account whose password field
+    is blank, with no credential at all.
+  remediation: Set "PermitEmptyPasswords no".
+  tags: [ssh, sshd, authentication]
+files:
+  - sshd_config
+  - sshd_config.d/*.conf
+  - "*/sshd_config"
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*PermitEmptyPasswords\s+yes\b'
+
+---
+
+id: sshd-x11-forwarding
+info:
+  name: X11 forwarding enabled
+  severity: low
+  description: >-
+    X11 forwarding lets a compromised server reach back into the client's
+    display and read its input. It is rarely needed on a server.
+  remediation: Set "X11Forwarding no" unless a specific workflow depends on it.
+  tags: [ssh, sshd, hardening]
+files:
+  - sshd_config
+  - sshd_config.d/*.conf
+  - "*/sshd_config"
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*X11Forwarding\s+yes\b'
+
+---
+
+id: sshd-weak-ciphers
+info:
+  name: Obsolete SSH ciphers or MACs enabled
+  severity: high
+  description: >-
+    CBC-mode ciphers, arcfour, 3DES and MD5 or 96-bit truncated MACs all have
+    known weaknesses and were removed from OpenSSH defaults years ago.
+    Re-enabling them only helps an attacker who can downgrade the connection.
+  remediation: >-
+    Remove the explicit list and use the modern defaults, or specify only
+    chacha20-poly1305, aes256-gcm and aes128-gcm.
+  reference:
+    - https://www.openssh.com/legacy.html
+  tags: [ssh, sshd, crypto]
+files:
+  - sshd_config
+  - sshd_config.d/*.conf
+  - "*/sshd_config"
+  - ssh_config
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*Ciphers[^\n]*(?:arcfour|3des|-cbc)'
+      - '(?im)^\s*MACs[^\n]*(?:hmac-md5|-96\b)'
+
+---
+
+id: sshd-protocol-1
+info:
+  name: SSH protocol 1 enabled
+  severity: critical
+  description: >-
+    SSH protocol version 1 is cryptographically broken and was removed from
+    OpenSSH entirely. A configuration still requesting it indicates a very old
+    or hand-written file.
+  remediation: Remove the Protocol directive; modern OpenSSH speaks version 2 only.
+  tags: [ssh, sshd, crypto, legacy]
+files:
+  - sshd_config
+  - sshd_config.d/*.conf
+  - "*/sshd_config"
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*Protocol\s+.*\b1\b'

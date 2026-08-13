@@ -1,0 +1,370 @@
+# Rules for `qalqon target`, which fetches one response per host.
+#
+# Run these against infrastructure you operate. They make a single ordinary GET
+# — the same request a browser makes — and read the headers, cookies and TLS
+# state that came back.
+#
+# Matchers name the part they read: header, body, status, url or tls.
+
+id: http-missing-hsts
+type: http
+info:
+  name: HSTS header not sent
+  severity: medium
+  description: >-
+    Without Strict-Transport-Security a browser will still try plain HTTP on
+    the next visit, which leaves a window for an active network attacker to
+    strip TLS before the redirect happens.
+  remediation: 'Send: Strict-Transport-Security: max-age=31536000; includeSubDomains'
+  reference:
+    - https://developer.mozilla.org/docs/Web/HTTP/Headers/Strict-Transport-Security
+  tags: [http, headers, tls]
+condition: and
+matchers:
+  - part: url
+    context: true
+    patterns:
+      - '^https://'
+  - part: header
+    type: absent
+    patterns:
+      - '(?im)^strict-transport-security:'
+
+---
+
+id: http-missing-csp
+type: http
+info:
+  name: No Content-Security-Policy
+  severity: medium
+  description: >-
+    CSP is the strongest defence against cross-site scripting, because it stops
+    injected script from executing even when an injection succeeds. Without it
+    every XSS bug is directly exploitable.
+  remediation: >-
+    Start with a report-only policy to find what breaks, then enforce something
+    like "default-src 'self'".
+  reference:
+    - https://developer.mozilla.org/docs/Web/HTTP/Headers/Content-Security-Policy
+  tags: [http, headers, xss]
+matchers:
+  - part: header
+    type: absent
+    patterns:
+      - '(?im)^content-security-policy:'
+
+---
+
+id: http-missing-nosniff
+type: http
+info:
+  name: MIME sniffing not disabled
+  severity: low
+  description: >-
+    Without X-Content-Type-Options the browser may ignore the declared content
+    type and guess, which turns an uploaded text file into executable script.
+  remediation: 'Send: X-Content-Type-Options: nosniff'
+  tags: [http, headers]
+matchers:
+  - part: header
+    type: absent
+    patterns:
+      - '(?im)^x-content-type-options:\s*nosniff'
+
+---
+
+id: http-missing-frame-protection
+type: http
+info:
+  name: Page can be framed by any site
+  severity: medium
+  description: >-
+    With neither X-Frame-Options nor a frame-ancestors directive, another site
+    can load this page in an invisible frame and trick a logged-in user into
+    clicking things they cannot see.
+  remediation: >-
+    Send "X-Frame-Options: DENY", or better, "Content-Security-Policy:
+    frame-ancestors 'none'".
+  reference:
+    - https://developer.mozilla.org/docs/Web/HTTP/Headers/X-Frame-Options
+  tags: [http, headers, clickjacking]
+condition: and
+matchers:
+  - part: header
+    type: absent
+    patterns:
+      - '(?im)^x-frame-options:'
+  - part: header
+    type: absent
+    patterns:
+      - '(?im)^content-security-policy:[^\n]*frame-ancestors'
+
+---
+
+id: http-missing-referrer-policy
+type: http
+info:
+  name: No Referrer-Policy
+  severity: low
+  description: >-
+    By default browsers send the full URL of the current page to other origins.
+    If a path or query string carries a token or an identifier, it leaks to
+    every third party the page talks to.
+  remediation: 'Send: Referrer-Policy: strict-origin-when-cross-origin'
+  tags: [http, headers, privacy]
+matchers:
+  - part: header
+    type: absent
+    patterns:
+      - '(?im)^referrer-policy:'
+
+---
+
+id: http-server-version-disclosed
+type: http
+info:
+  name: Server software version disclosed
+  severity: low
+  description: >-
+    The Server header names the software and its exact version, which is a
+    free version match against known vulnerabilities for anyone scanning.
+  remediation: >-
+    Trim the header. nginx: server_tokens off. Apache: ServerTokens Prod.
+    Better still, strip it at the edge.
+  tags: [http, headers, disclosure]
+matchers:
+  - part: header
+    patterns:
+      - '(?im)^server:\s*\S+/\d'
+
+---
+
+id: http-powered-by-disclosed
+type: http
+info:
+  name: X-Powered-By reveals the stack
+  severity: low
+  description: >-
+    X-Powered-By names the framework and often its version. It has no purpose
+    in production and only helps an attacker narrow their approach.
+  remediation: >-
+    Remove it. Express: app.disable('x-powered-by'). PHP: expose_php = Off.
+  tags: [http, headers, disclosure]
+matchers:
+  - part: header
+    patterns:
+      - '(?im)^x-powered-by:'
+
+---
+
+id: http-cookie-missing-secure
+type: http
+info:
+  name: Cookies set without the Secure flag
+  severity: medium
+  description: >-
+    A cookie without Secure is sent over plain HTTP too, so a single
+    unencrypted request can hand a session to anyone on the path. This fires
+    when no cookie in the response carries the flag.
+  remediation: Add Secure to every Set-Cookie, and HttpOnly to any cookie scripts do not need.
+  reference:
+    - https://developer.mozilla.org/docs/Web/HTTP/Headers/Set-Cookie
+  tags: [http, cookies, session]
+condition: and
+matchers:
+  - part: header
+    context: true
+    patterns:
+      - '(?im)^set-cookie:'
+  - part: header
+    type: absent
+    patterns:
+      - '(?im)^set-cookie:[^\n]*;\s*secure'
+
+---
+
+id: http-cookie-missing-httponly
+type: http
+info:
+  name: Cookies set without HttpOnly
+  severity: medium
+  description: >-
+    A cookie readable from JavaScript can be exfiltrated by any successful XSS.
+    HttpOnly removes that path for cookies the page does not need to read.
+  remediation: Add HttpOnly to session cookies.
+  tags: [http, cookies, session]
+condition: and
+matchers:
+  - part: header
+    context: true
+    patterns:
+      - '(?im)^set-cookie:'
+  - part: header
+    type: absent
+    patterns:
+      - '(?im)^set-cookie:[^\n]*;\s*httponly'
+
+---
+
+id: http-cors-wildcard
+type: http
+info:
+  name: CORS allows any origin
+  severity: medium
+  description: >-
+    Access-Control-Allow-Origin "*" lets any website read this response. That
+    is fine for a public API and serious for anything that varies by session.
+  remediation: 'Echo back a specific allowed origin instead of a wildcard, and add Vary: Origin.'
+  reference:
+    - https://developer.mozilla.org/docs/Web/HTTP/CORS
+  tags: [http, headers, cors]
+matchers:
+  - part: header
+    patterns:
+      - '(?im)^access-control-allow-origin:\s*\*'
+
+---
+
+id: http-directory-listing
+type: http
+info:
+  name: Directory listing exposed
+  severity: medium
+  description: >-
+    The server is rendering an index of files instead of a page. Listings
+    routinely expose backups, configuration and files nobody meant to publish.
+  remediation: 'nginx: autoindex off. Apache: Options -Indexes.'
+  tags: [http, disclosure]
+matchers:
+  - part: body
+    patterns:
+      - '(?i)<title>\s*Index of /'
+      - '(?i)<h1>\s*Index of /'
+
+---
+
+id: http-served-over-plaintext
+type: http
+info:
+  name: Content served over plain HTTP
+  severity: high
+  description: >-
+    The target answered an unencrypted request with content rather than
+    redirecting to HTTPS. Everything on that connection, including cookies, is
+    readable and modifiable in transit.
+  remediation: Redirect all HTTP to HTTPS with a 301, then send HSTS on the HTTPS response.
+  tags: [http, tls, transport]
+condition: and
+matchers:
+  - part: url
+    context: true
+    patterns:
+      - '^http://'
+  - part: status
+    patterns:
+      - '^(?:200|401|403)$'
+
+---
+
+id: tls-obsolete-protocol
+type: http
+info:
+  name: Connection negotiated an obsolete TLS version
+  severity: high
+  description: >-
+    TLS 1.0 and 1.1 are deprecated and carry known protocol weaknesses. That
+    the handshake settled on one means the server still offers it.
+  remediation: Offer only TLS 1.2 and 1.3.
+  reference:
+    - https://ssl-config.mozilla.org/
+  tags: [tls, crypto]
+matchers:
+  - part: tls
+    patterns:
+      - '(?im)^version:\s*TLS 1\.[01]\s*$'
+
+---
+
+id: tls-certificate-expired
+type: http
+info:
+  name: Certificate has expired
+  severity: critical
+  description: >-
+    The certificate is past its notAfter date. Browsers show a full-page
+    interstitial, and API clients will refuse to connect entirely.
+  remediation: Renew now, and automate renewal so it cannot happen again.
+  tags: [tls, certificate, availability]
+matchers:
+  - part: tls
+    patterns:
+      - '(?im)^expired:\s*true\s*$'
+
+---
+
+id: tls-certificate-expiring-soon
+type: http
+info:
+  name: Certificate expires within 30 days
+  severity: medium
+  description: >-
+    There is less than a month of validity left. If renewal is manual, this is
+    the window in which it gets forgotten.
+  remediation: Renew and automate it — ACME clients handle this unattended.
+  tags: [tls, certificate, availability]
+matchers:
+  - part: tls
+    patterns:
+      - '(?im)^expires_within_30d:\s*true\s*$'
+
+---
+
+id: tls-self-signed-certificate
+type: http
+info:
+  name: Certificate is self-signed
+  severity: high
+  description: >-
+    A self-signed certificate proves nothing about who is on the other end, so
+    clients either refuse it or are taught to skip verification — which removes
+    the protection TLS was there to provide.
+  remediation: Use a certificate from a trusted CA. Let's Encrypt issues them free and automatically.
+  tags: [tls, certificate]
+matchers:
+  - part: tls
+    patterns:
+      - '(?im)^self_signed:\s*true\s*$'
+
+---
+
+id: tls-hostname-mismatch
+type: http
+info:
+  name: Certificate does not cover this hostname
+  severity: high
+  description: >-
+    The name requested is not in the certificate's subject or SAN list. Clients
+    reject the connection, and users are trained to click through the warning.
+  remediation: Reissue the certificate with the correct SAN entries.
+  tags: [tls, certificate]
+matchers:
+  - part: tls
+    patterns:
+      - '(?im)^hostname_mismatch:\s*true\s*$'
+
+---
+
+id: tls-weak-key-size
+type: http
+info:
+  name: Certificate key is too small
+  severity: high
+  description: >-
+    RSA keys below 2048 bits are considered breakable and are already rejected
+    by modern clients.
+  remediation: Reissue with at least a 2048-bit RSA key, or an ECDSA P-256 key.
+  tags: [tls, certificate, crypto]
+matchers:
+  - part: tls
+    patterns:
+      - '(?im)^key_bits:\s*(?:512|768|1024)\s*$'

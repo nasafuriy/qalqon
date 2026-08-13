@@ -1,0 +1,92 @@
+# PHP runtime configuration.
+
+id: php-display-errors-enabled
+info:
+  name: PHP errors displayed to visitors
+  severity: medium
+  description: >-
+    display_errors sends stack traces, file paths and often query fragments
+    straight to the browser. It is a reliable source of information for anyone
+    mapping an application, and occasionally leaks credentials outright.
+  remediation: 'Set "display_errors = Off" and "log_errors = On" in production.'
+  reference:
+    - https://www.php.net/manual/en/errorfunc.configuration.php
+  tags: [php, disclosure, production]
+files:
+  - php.ini
+  - php.ini.*
+  - "*.ini"
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*display_errors\s*=\s*(?:On|1|true|stdout)\b'
+
+---
+
+id: php-expose-php-enabled
+info:
+  name: PHP version advertised in headers
+  severity: low
+  description: >-
+    expose_php adds an X-Powered-By header naming the exact PHP version, which
+    is a free version match for anyone scanning for known bugs.
+  remediation: 'Set "expose_php = Off".'
+  tags: [php, disclosure]
+files:
+  - php.ini
+  - php.ini.*
+  - "*.ini"
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*expose_php\s*=\s*(?:On|1|true)\b'
+
+---
+
+id: php-allow-url-include
+info:
+  name: Remote file inclusion enabled
+  severity: critical
+  description: >-
+    allow_url_include lets include() and require() pull code from a URL. Any
+    place where an attacker influences an include path becomes straightforward
+    remote code execution.
+  remediation: 'Set "allow_url_include = Off", and "allow_url_fopen = Off" unless a library needs it.'
+  reference:
+    - https://www.php.net/manual/en/filesystem.configuration.php
+  tags: [php, rce, injection]
+files:
+  - php.ini
+  - php.ini.*
+  - "*.ini"
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*allow_url_include\s*=\s*(?:On|1|true)\b'
+
+---
+
+id: php-dangerous-functions-enabled
+info:
+  name: Shell execution functions left enabled
+  severity: medium
+  description: >-
+    Most web applications never call exec, shell_exec, passthru or system.
+    Leaving them available turns a file-write or injection bug into command
+    execution.
+  remediation: >-
+    Add the ones you do not need to disable_functions, for example
+    "disable_functions = exec,passthru,shell_exec,system,proc_open,popen".
+  tags: [php, rce, hardening]
+files:
+  - php.ini
+  - php.ini.*
+condition: and
+matchers:
+  - type: regex
+    context: true
+    patterns:
+      - '(?im)^\s*disable_functions\s*='
+  - type: absent
+    patterns:
+      - '(?im)^\s*disable_functions\s*=[^\n]*\b(?:shell_exec|system|passthru)\b'

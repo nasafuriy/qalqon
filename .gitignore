@@ -1,0 +1,19 @@
+# Build output
+/qalqon
+/qalqon.exe
+/dist/
+*.sarif
+*.test
+
+# Editors
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# NOTE: testdata/ is deliberately NOT ignored. The fixtures under
+# testdata/vulnerable contain deliberately bad configuration and dummy
+# credentials — they are the test suite, and none of them are real.

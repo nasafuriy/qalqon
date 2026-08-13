@@ -1,0 +1,7 @@
+# Fixture: this file must produce no findings.
+Port 22
+PermitRootLogin no
+PasswordAuthentication no
+PermitEmptyPasswords no
+KbdInteractiveAuthentication no
+X11Forwarding no
