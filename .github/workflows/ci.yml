@@ -36,9 +36,12 @@ jobs:
         run: |
           set -o pipefail
           if ! go test -race ./... 2>&1 | tee test-output.txt; then
-            grep -E '^(--- FAIL|FAIL|panic:|.*WARNING: DATA RACE|[[:space:]]+[a-z_]+\.go:[0-9]+:)' test-output.txt \
-              | head -40 \
-              | while IFS= read -r line; do echo "::error::${{ matrix.os }}: $line"; done
+            # One annotation carrying the whole output: filtering by pattern
+            # missed the actual error last time, and annotations are capped per
+            # step, so a single multi-line message is the reliable form.
+            printf '::error::%s failed%%0A%%0A%s\n' \
+              "${{ matrix.os }}" \
+              "$(head -80 test-output.txt | awk '{printf "%s%%0A", $0}')"
             exit 1
           fi
 
