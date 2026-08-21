@@ -135,3 +135,92 @@ matchers:
   - type: regex
     patterns:
       - '(?im)^\s*Protocol\s+.*\b1\b'
+
+---
+
+id: sshd-permit-user-environment
+info:
+  name: Users may set environment variables at login
+  severity: medium
+  description: >-
+    PermitUserEnvironment lets a user's ~/.ssh/environment set variables for
+    the login shell. LD_PRELOAD and PATH are enough to turn write access to a
+    home directory into code execution under whatever the session later runs.
+  remediation: Set "PermitUserEnvironment no", which is the default.
+  reference:
+    - https://man.openbsd.org/sshd_config
+  tags: [ssh, sshd, privilege]
+files:
+  - sshd_config
+  - sshd_config.d/*.conf
+  - "*/sshd_config"
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*PermitUserEnvironment\s+yes\b'
+
+---
+
+id: sshd-strict-modes-disabled
+info:
+  name: sshd no longer checks key file permissions
+  severity: medium
+  description: >-
+    StrictModes is the check that refuses to use an authorized_keys file that
+    is group- or world-writable. Turning it off means anyone who can write to
+    another user's home directory can add their own key to it.
+  remediation: Set "StrictModes yes", which is the default.
+  tags: [ssh, sshd, permissions]
+files:
+  - sshd_config
+  - sshd_config.d/*.conf
+  - "*/sshd_config"
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*StrictModes\s+no\b'
+
+---
+
+id: sshd-gateway-ports
+info:
+  name: Remote forwarded ports exposed beyond the server
+  severity: medium
+  description: >-
+    GatewayPorts lets a client's remote forward bind to every interface rather
+    than loopback, so any user with SSH access can publish an internal service
+    on the host's public address without touching the firewall.
+  remediation: Set "GatewayPorts no", and use "clientspecified" only where a specific workflow requires it.
+  tags: [ssh, sshd, network, exposure]
+files:
+  - sshd_config
+  - sshd_config.d/*.conf
+  - "*/sshd_config"
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*GatewayPorts\s+(?:yes|clientspecified)\b'
+
+---
+
+id: sshd-agent-forwarding
+info:
+  name: SSH agent forwarding enabled
+  severity: low
+  description: >-
+    A forwarded agent socket can be used by anyone with root on the
+    intermediate host to authenticate as the connecting user anywhere their
+    key is accepted. The key never leaves the laptop, but its use does not
+    stay there either.
+  remediation: >-
+    Set "AllowAgentForwarding no" and use ProxyJump, which keeps the
+    authentication on the client.
+  tags: [ssh, sshd, credential]
+files:
+  - sshd_config
+  - sshd_config.d/*.conf
+  - "*/sshd_config"
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*AllowAgentForwarding\s+yes\b'

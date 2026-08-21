@@ -5,3 +5,7 @@ PasswordAuthentication no
 PermitEmptyPasswords no
 KbdInteractiveAuthentication no
 X11Forwarding no
+PermitUserEnvironment no
+StrictModes yes
+GatewayPorts no
+AllowAgentForwarding no

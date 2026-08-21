@@ -92,54 +92,126 @@ func TestCleanFixturesProduceNoFindings(t *testing.T) {
 
 func TestVulnerableFixturesAreDetected(t *testing.T) {
 	want := map[string][]string{
+		".env": {
+			"aws-access-key-id",
+			"connection-string-with-password",
+			"env-file-committed",
+			"hardcoded-credential-assignment",
+			"jwt-token-committed",
+			"provider-token-committed",
+			"slack-webhook-committed",
+			"stripe-live-key",
+		},
+		".github/workflows/bad.yml": {
+			"actions-excessive-token-permissions",
+			"actions-pull-request-target-checkout",
+			"actions-script-injection",
+			"actions-self-hosted-on-public-trigger",
+			"actions-unpinned-version",
+		},
+		".github/workflows/release.yml": {
+			"actions-curl-pipe-shell",
+			"actions-secret-echoed",
+			"actions-secrets-inherit",
+			"actions-workflow-run-untrusted-checkout",
+		},
+		".gitlab-ci.yml": {
+			"gitlab-ci-curl-pipe-shell",
+			"gitlab-ci-docker-tls-disabled",
+			"gitlab-ci-hardcoded-credential",
+			"gitlab-ci-image-latest-tag",
+			"gitlab-ci-tls-verification-disabled",
+			"gitlab-ci-unpinned-remote-include",
+		},
+		"Caddyfile": {
+			"caddy-auto-https-disabled",
+			"caddy-directory-listing",
+			"caddy-tls-verification-disabled",
+		},
+		"Chart.yaml": {
+			"helm-chart-dependency-unpinned",
+		},
 		"Dockerfile": {
 			"docker-add-remote-url",
 			"docker-apt-no-version-pin",
+			"docker-chmod-world-writable",
 			"docker-curl-pipe-shell",
 			"docker-latest-tag",
 			"docker-missing-user",
+			"docker-pip-no-version-pin",
 			"docker-secret-in-layer",
+			"docker-ssh-key-copied",
+			"docker-untagged-base-image",
 		},
-		"docker-compose.yml": {
-			"compose-docker-socket-mount",
-			"compose-hardcoded-password",
-			"compose-host-network",
-			"compose-privileged-container",
-			"compose-restart-always-no-healthcheck",
+		"ansible.cfg": {
+			"ansible-host-key-checking-disabled",
+		},
+		"app.service": {
+			"systemd-dangerous-capabilities",
+			"systemd-missing-sandboxing",
+			"systemd-service-runs-as-root",
+		},
+		"cloud.tf": {
+			"terraform-azure-insecure-transfer",
+			"terraform-azure-network-open-to-world",
+			"terraform-database-publicly-accessible",
+			"terraform-gcp-firewall-open-to-world",
+			"terraform-iam-wildcard-policy",
+			"terraform-module-source-unpinned",
+		},
+		"cloudformation.yaml": {
+			"cfn-database-unencrypted",
+			"cfn-hardcoded-credential",
+			"cfn-iam-wildcard-policy",
+			"cfn-s3-bucket-public-access",
+			"cfn-security-group-open-to-world",
 		},
 		"deployment.yaml": {
 			"k8s-allow-privilege-escalation",
+			"k8s-capabilities-not-dropped",
 			"k8s-container-runs-as-root",
 			"k8s-host-namespace",
 			"k8s-host-path-volume",
 			"k8s-image-latest-tag",
 			"k8s-missing-resource-limits",
 			"k8s-privileged-container",
+			"k8s-service-account-token-automounted",
+			"k8s-writable-root-filesystem",
 		},
-		"nginx.conf": {
-			"nginx-missing-hsts",
-			"nginx-proxy-missing-host-header",
-			"nginx-server-tokens-on",
-			"nginx-weak-tls-protocols",
+		"docker-compose.yml": {
+			"compose-dangerous-capabilities",
+			"compose-database-port-published",
+			"compose-docker-socket-mount",
+			"compose-hardcoded-password",
+			"compose-host-network",
+			"compose-host-pid-namespace",
+			"compose-image-latest-tag",
+			"compose-privileged-container",
+			"compose-restart-always-no-healthcheck",
 		},
-		".github/workflows/bad.yml": {
-			"actions-excessive-token-permissions",
-			"actions-pull-request-target-checkout",
-			"actions-script-injection",
-			"actions-unpinned-version",
+		"envoy.yaml": {
+			"envoy-admin-interface-exposed",
+			"envoy-tls-verification-disabled",
+			"envoy-weak-tls-version",
 		},
-		".env": {
-			"aws-access-key-id",
-			"env-file-committed",
-			"hardcoded-credential-assignment",
+		"haproxy.cfg": {
+			"haproxy-missing-forwarded-proto",
+			"haproxy-ssl-verify-none",
+			"haproxy-stats-without-auth",
+			"haproxy-weak-tls-version",
 		},
-		"sshd_config": {
-			"sshd-empty-passwords",
-			"sshd-password-authentication",
-			"sshd-permit-root-login",
-			"sshd-protocol-1",
-			"sshd-weak-ciphers",
-			"sshd-x11-forwarding",
+		"httpd.conf": {
+			"apache-allow-override-all",
+			"apache-directory-listing",
+			"apache-missing-hsts",
+			"apache-server-status-exposed",
+			"apache-server-tokens-verbose",
+			"apache-trace-method",
+			"apache-weak-ssl-ciphers",
+			"apache-weak-ssl-protocols",
+		},
+		"ingress.yaml": {
+			"k8s-ingress-without-tls",
 		},
 		"main.tf": {
 			"terraform-hardcoded-credential",
@@ -148,23 +220,93 @@ func TestVulnerableFixturesAreDetected(t *testing.T) {
 			"terraform-security-group-open-to-world",
 			"terraform-unencrypted-storage",
 		},
-		"httpd.conf": {
-			"apache-allow-override-all",
-			"apache-directory-listing",
-			"apache-server-tokens-verbose",
-			"apache-trace-method",
-			"apache-weak-ssl-protocols",
+		"mongod.conf": {
+			"mongodb-authorization-disabled",
+			"mongodb-bound-to-all-interfaces",
+			"mongodb-tls-disabled",
 		},
-		"app.service": {
-			"systemd-dangerous-capabilities",
-			"systemd-missing-sandboxing",
-			"systemd-service-runs-as-root",
+		"my.cnf": {
+			"mysql-bound-to-all-interfaces",
+			"mysql-local-infile-enabled",
+			"mysql-plaintext-password-in-config",
+			"mysql-skip-grant-tables",
+		},
+		"nginx.conf": {
+			"nginx-autoindex-enabled",
+			"nginx-missing-content-type-options",
+			"nginx-missing-hsts",
+			"nginx-proxy-missing-host-header",
+			"nginx-server-tokens-on",
+			"nginx-weak-ssl-ciphers",
+			"nginx-weak-tls-protocols",
+		},
+		"pg_hba.conf": {
+			"postgres-trust-authentication",
 		},
 		"php.ini": {
+			"php-allow-url-fopen",
 			"php-allow-url-include",
+			"php-cgi-fix-pathinfo",
 			"php-dangerous-functions-enabled",
 			"php-display-errors-enabled",
 			"php-expose-php-enabled",
+			"php-session-cookie-not-httponly",
+			"php-session-cookie-not-secure",
+		},
+		"playbook.yml": {
+			"ansible-become-without-user",
+			"ansible-plaintext-credential",
+			"ansible-validate-certs-disabled",
+		},
+		"postgresql.conf": {
+			"postgres-listening-on-all-interfaces",
+			"postgres-ssl-disabled",
+			"postgres-weak-password-encryption",
+		},
+		"private.pem": {
+			"private-key-committed",
+		},
+		"rbac.yaml": {
+			"k8s-cluster-admin-binding",
+			"k8s-rbac-wildcard-permissions",
+		},
+		"redis-cache.conf": {
+			"redis-default-password",
+		},
+		"redis.conf": {
+			"redis-bound-to-all-interfaces",
+			"redis-no-authentication",
+			"redis-protected-mode-disabled",
+		},
+		"roles/web/tasks/main.yml": {
+			"ansible-shell-without-changed-when",
+			"ansible-world-writable-mode",
+		},
+		"service-account.json": {
+			"gcp-service-account-key",
+		},
+		"sshd_config": {
+			"sshd-agent-forwarding",
+			"sshd-empty-passwords",
+			"sshd-gateway-ports",
+			"sshd-password-authentication",
+			"sshd-permit-root-login",
+			"sshd-permit-user-environment",
+			"sshd-protocol-1",
+			"sshd-strict-modes-disabled",
+			"sshd-weak-ciphers",
+			"sshd-x11-forwarding",
+		},
+		"traefik.yml": {
+			"traefik-api-insecure",
+			"traefik-tls-verification-disabled",
+			"traefik-weak-tls-version",
+		},
+		"values.yaml": {
+			"helm-values-hardcoded-credential",
+			"helm-values-host-namespace",
+			"helm-values-image-tag-latest",
+			"helm-values-privileged-container",
 		},
 	}
 
@@ -179,6 +321,22 @@ func TestVulnerableFixturesAreDetected(t *testing.T) {
 	}
 	for file, ids := range got {
 		t.Errorf("unexpected findings in %s: %v", file, ids)
+	}
+}
+
+// A template with no fixture is a template nobody has checked. It will still
+// load, still appear in "qalqon templates", and still be wrong in a way that
+// only shows up on somebody's repository.
+func TestEveryFileTemplateFiresOnTheVulnerableTree(t *testing.T) {
+	fired := map[string]bool{}
+	for _, f := range scan(t, "testdata/vulnerable") {
+		fired[f.TemplateID] = true
+	}
+
+	for _, tpl := range builtin(t).OfKind(template.KindFile).Templates {
+		if !fired[tpl.ID] {
+			t.Errorf("%s never fires — add a case to testdata/vulnerable (%s)", tpl.ID, tpl.Source)
+		}
 	}
 }
 

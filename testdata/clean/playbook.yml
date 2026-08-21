@@ -1,0 +1,11 @@
+- hosts: web
+  become: true
+  become_user: app
+  vars:
+    db_password: "{{ vault_db_password }}"
+  tasks:
+    - name: Fetch the installer
+      ansible.builtin.get_url:
+        url: https://releases.example.com/app.tar.gz
+        dest: /tmp/app.tar.gz
+        checksum: sha256:8f14e45fceea167a5a36dedd4bea2543b7f0d8e0a53b0e2b3d5d6c1a9e7f4b21

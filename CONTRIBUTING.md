@@ -18,7 +18,9 @@ Concretely, every template must:
 - Carry a `remediation` telling the reader what to do instead
 - Carry at least one tag, so `-tags` can select it
 
-The test suite enforces the last three.
+The test suite enforces all five: `TestEveryFileTemplateFiresOnTheVulnerableTree` fails
+if your rule never fires anywhere, and `TestCleanFixturesProduceNoFindings` fails if it
+fires where it should not.
 
 ## Adding one
 
@@ -66,6 +68,11 @@ go build -o qalqon ./cmd/qalqon
 **Go regexes are RE2 — there is no lookahead or lookbehind.** `(?!...)` and `(?<=...)`
 will not compile. Express the rule positively instead. If you cannot, the check probably
 needs a real parser rather than a pattern, and it may not belong here.
+
+**A negated character class matches newlines.** `[^;]*` will happily run past the end of
+the line and match something several lines down, which is how a `listen_addresses` in a
+`postgresql.conf` once reported a missing nginx HSTS header. When the directive is
+line-oriented, write `[^;\n]*`.
 
 **Broad file globs need a context matcher.** `*.yaml` matches half a repository. Gate the
 rule on something that proves the file is what you think it is:

@@ -1,0 +1,15 @@
+api:
+  dashboard: true
+
+entryPoints:
+  websecure:
+    address: ":443"
+
+tls:
+  options:
+    default:
+      minVersion: VersionTLS12
+
+serversTransport:
+  rootCAs:
+    - /etc/ssl/internal-ca.pem

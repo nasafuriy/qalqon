@@ -1,0 +1,96 @@
+# PostgreSQL server rules, covering postgresql.conf and pg_hba.conf.
+
+id: postgres-trust-authentication
+info:
+  name: pg_hba grants access with no password at all
+  severity: critical
+  description: >-
+    The trust method authenticates on the strength of the connecting address
+    alone. Anyone who can open a socket becomes whichever database user they
+    name, superuser included, and no password is ever requested.
+  remediation: >-
+    Use scram-sha-256 for host lines and peer for local ones. Keep trust for
+    nothing beyond a throwaway container.
+  reference:
+    - https://www.postgresql.org/docs/current/auth-trust.html
+  tags: [postgres, postgresql, database, auth]
+files:
+  - pg_hba.conf
+  - pg_hba*.conf
+matchers:
+  - type: regex
+    comment: the method is the last field on a host or local line
+    patterns:
+      - '(?im)^\s*(?:local|host|hostssl|hostnossl)\s+\S+\s+\S+\s+(?:\S+\s+)?trust\s*$'
+
+---
+
+id: postgres-listening-on-all-interfaces
+info:
+  name: PostgreSQL listening on every interface
+  severity: medium
+  description: >-
+    listen_addresses '*' publishes the server on every address the host owns.
+    That is only safe when pg_hba.conf and a firewall are both exactly right,
+    and it removes the margin for error if either is not.
+  remediation: >-
+    List the specific private addresses the application connects to, and keep
+    the port closed at the firewall.
+  tags: [postgres, postgresql, database, exposure, network]
+files:
+  - postgresql.conf
+  - postgresql-*.conf
+  - postgresql.auto.conf
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*listen_addresses\s*=\s*''\*'''
+
+---
+
+id: postgres-ssl-disabled
+info:
+  name: PostgreSQL accepts connections without TLS
+  severity: medium
+  description: >-
+    With ssl off, credentials and query results cross the network in clear.
+    Anything that can observe the path between the application and the
+    database sees the data and the login.
+  remediation: Set ssl = on with a certificate, and require hostssl lines in pg_hba.conf.
+  reference:
+    - https://www.postgresql.org/docs/current/ssl-tcp.html
+  tags: [postgres, postgresql, database, tls]
+files:
+  - postgresql.conf
+  - postgresql-*.conf
+  - postgresql.auto.conf
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*ssl\s*=\s*off\b'
+
+---
+
+id: postgres-weak-password-encryption
+info:
+  name: PostgreSQL storing passwords as md5
+  severity: medium
+  description: >-
+    The md5 scheme derives its hash from the password and the username with no
+    per-installation salt and no work factor, so a leaked pg_authid is
+    crackable offline at speed. scram-sha-256 has been the default since
+    PostgreSQL 14.
+  remediation: >-
+    Set password_encryption = scram-sha-256, then have every role reset its
+    password so the stored verifier is rewritten.
+  reference:
+    - https://www.postgresql.org/docs/current/auth-password.html
+  tags: [postgres, postgresql, database, crypto, auth]
+files:
+  - postgresql.conf
+  - postgresql-*.conf
+  - postgresql.auto.conf
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*password_encryption\s*=\s*''?md5\b'

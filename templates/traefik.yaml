@@ -1,0 +1,91 @@
+# Traefik static and dynamic configuration rules.
+
+id: traefik-api-insecure
+info:
+  name: Traefik API exposed without authentication
+  severity: critical
+  description: >-
+    api.insecure publishes the dashboard and the full API on the entrypoint
+    with no authentication at all. The API describes every route, service and
+    certificate Traefik knows about, which maps the whole estate for whoever
+    finds it.
+  remediation: >-
+    Remove insecure, expose the dashboard through a router with a
+    basicAuth or forwardAuth middleware, and bind it to an internal entrypoint.
+  reference:
+    - https://doc.traefik.io/traefik/operations/api/
+  tags: [traefik, proxy, exposure, auth]
+files:
+  - traefik.yml
+  - traefik.yaml
+  - traefik.toml
+  - traefik-*.yml
+  - traefik/*.yml
+  - traefik/*.yaml
+condition: and
+matchers:
+  - type: regex
+    context: true
+    patterns:
+      - '(?im)^\s*\[?api\]?\s*[:{]?\s*$'
+  - type: regex
+    patterns:
+      - '(?im)^\s*insecure\s*[:=]\s*true\b'
+
+---
+
+id: traefik-tls-verification-disabled
+info:
+  name: Traefik does not verify upstream certificates
+  severity: high
+  description: >-
+    insecureSkipVerify makes Traefik accept any certificate a backend
+    presents, so the encrypted leg between the proxy and the service proves
+    nothing about who is on the other end.
+  remediation: >-
+    Add the backend's CA under serversTransport.rootCAs instead of skipping
+    the check.
+  reference:
+    - https://doc.traefik.io/traefik/routing/overview/
+  tags: [traefik, proxy, tls]
+files:
+  - traefik.yml
+  - traefik.yaml
+  - traefik.toml
+  - traefik-*.yml
+  - traefik/*.yml
+  - traefik/*.yaml
+  - dynamic.yml
+  - dynamic.yaml
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*insecureSkipVerify\s*[:=]\s*true\b'
+
+---
+
+id: traefik-weak-tls-version
+info:
+  name: Traefik accepts obsolete TLS versions
+  severity: high
+  description: >-
+    VersionTLS10 and VersionTLS11 carry known protocol weaknesses and are
+    already refused by current browsers. Allowing them only gives an attacker
+    a version to downgrade to.
+  remediation: 'Set minVersion: VersionTLS12, or VersionTLS13 where clients allow it.'
+  reference:
+    - https://doc.traefik.io/traefik/https/tls/
+  tags: [traefik, proxy, tls, crypto]
+files:
+  - traefik.yml
+  - traefik.yaml
+  - traefik.toml
+  - traefik-*.yml
+  - traefik/*.yml
+  - traefik/*.yaml
+  - dynamic.yml
+  - dynamic.yaml
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*minVersion\s*[:=]\s*["'']?VersionTLS1[01]\b'

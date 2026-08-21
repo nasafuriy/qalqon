@@ -125,6 +125,140 @@ matchers:
 
 ---
 
+id: terraform-database-publicly-accessible
+info:
+  name: Managed database given a public address
+  severity: high
+  description: >-
+    publicly_accessible puts the instance on a routable address, so the only
+    thing between the internet and the data is the security group and the
+    database password. Credential stuffing against 3306 and 5432 is constant.
+  remediation: >-
+    Leave publicly_accessible false and reach the database from inside the
+    VPC, over a bastion, or through a VPN.
+  tags: [terraform, aws, database, exposure]
+files:
+  - "*.tf"
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*publicly_accessible\s*=\s*true\b'
+
+---
+
+id: terraform-gcp-firewall-open-to-world
+info:
+  name: GCP firewall rule open to the whole internet
+  severity: high
+  description: >-
+    source_ranges 0.0.0.0/0 allows every host on the internet to reach the
+    ports the rule opens. On a management port this is how instances are found
+    and compromised by automated scanning.
+  remediation: >-
+    Narrow source_ranges to the networks that need access, or use
+    source_tags and source_service_accounts to scope the rule to workloads.
+  reference:
+    - https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/compute_firewall
+  tags: [terraform, gcp, cloud, network, exposure]
+files:
+  - "*.tf"
+prefilter: ["0.0.0.0/0"]
+condition: and
+matchers:
+  - type: regex
+    context: true
+    patterns:
+      - '(?is)resource\s+"google_compute_firewall"'
+  - type: regex
+    patterns:
+      - '(?im)^\s*source_ranges\s*=\s*\[[^\]]*"0\.0\.0\.0/0"'
+
+---
+
+id: terraform-azure-network-open-to-world
+info:
+  name: Azure security rule open to the whole internet
+  severity: high
+  description: >-
+    A source_address_prefix of "*" or "Internet" on an inbound Allow rule
+    exposes the ports to every host on the internet, which defeats the network
+    security group it is written in.
+  remediation: >-
+    Name the specific address prefixes, or reference another security group
+    with source_application_security_group_ids.
+  reference:
+    - https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/network_security_rule
+  tags: [terraform, azure, cloud, network, exposure]
+files:
+  - "*.tf"
+condition: and
+matchers:
+  - type: regex
+    context: true
+    patterns:
+      - '(?is)resource\s+"azurerm_network_security_(?:rule|group)"'
+  - type: regex
+    context: true
+    patterns:
+      - '(?im)^\s*direction\s*=\s*"Inbound"'
+  - type: regex
+    patterns:
+      - '(?im)^\s*source_address_prefix\s*=\s*"(?:\*|Internet)"'
+
+---
+
+id: terraform-azure-insecure-transfer
+info:
+  name: Azure storage account allows plaintext or obsolete TLS
+  severity: medium
+  description: >-
+    Turning off https_traffic_only lets clients read and write blobs over
+    plain HTTP, and a min_tls_version of TLS1_0 or TLS1_1 keeps protocol
+    versions alive that carry known weaknesses.
+  remediation: >-
+    Leave https_traffic_only enabled and set min_tls_version to TLS1_2.
+  tags: [terraform, azure, cloud, storage, tls]
+files:
+  - "*.tf"
+condition: and
+matchers:
+  - type: regex
+    context: true
+    patterns:
+      - '(?is)resource\s+"azurerm_storage_account"'
+  - type: regex
+    patterns:
+      - '(?im)^\s*(?:enable_https_traffic_only|https_traffic_only_enabled)\s*=\s*false\b'
+      - '(?im)^\s*min_tls_version\s*=\s*"TLS1_[01]"'
+
+---
+
+id: terraform-module-source-unpinned
+info:
+  name: Git module source is not pinned to a revision
+  severity: medium
+  description: >-
+    A git source with no ref resolves to the default branch every time
+    terraform init runs, so the same committed configuration can produce two
+    different plans on two different days.
+  remediation: 'Append a revision: source = "git::https://…//module?ref=v1.4.0".'
+  reference:
+    - https://developer.hashicorp.com/terraform/language/modules/sources
+  tags: [terraform, supply-chain]
+files:
+  - "*.tf"
+prefilter: ["git::"]
+matchers:
+  - type: regex
+    comment: >-
+      a source with no query string at all cannot carry ?ref=. RE2 has no
+      lookahead, so this deliberately says nothing about sources that do have
+      a query string — missing a case beats inventing one.
+    patterns:
+      - '(?im)^\s*source\s*=\s*"git::[^"?\n]*"'
+
+---
+
 id: terraform-iam-wildcard-policy
 info:
   name: IAM policy grants every action
@@ -138,7 +272,7 @@ files:
   - "*.tf"
   - "*.tf.json"
   - "*.json"
-prefilter: ['"Action"', 'actions']
+prefilter: [Action, action, ACTION]
 condition: and
 matchers:
   - type: regex

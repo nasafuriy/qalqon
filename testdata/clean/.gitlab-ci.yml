@@ -1,0 +1,29 @@
+include:
+  - project: platform/ci-templates
+    ref: v2.4.1
+    file: /templates/build.yml
+
+stages:
+  - build
+  - deploy
+
+variables:
+  DOCKER_TLS_CERTDIR: "/certs"
+  DEPLOY_PASSWORD: $DEPLOY_PASSWORD
+
+build:
+  stage: build
+  image: docker:24.0.7
+  services:
+    - docker:24.0.7-dind
+  script:
+    - curl -fsSLo install.sh https://get.example.com/install.sh
+    - sha256sum -c install.sh.sha256
+    - sh install.sh
+    - docker build -t app .
+
+deploy:
+  stage: deploy
+  image: alpine:3.19.1
+  script:
+    - curl --fail https://deploy.example.com/hook

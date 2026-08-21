@@ -129,3 +129,109 @@ matchers:
   - type: absent
     patterns:
       - '(?im)^\s*healthcheck:'
+
+---
+
+id: compose-host-pid-namespace
+info:
+  name: Service shares the host process or IPC namespace
+  severity: high
+  description: >-
+    pid host lets the container see, inspect and signal every process on the
+    machine, including reading their memory and command lines. ipc host gives
+    it the host's shared memory. Either one removes the container boundary
+    that the rest of the file assumes exists.
+  remediation: Remove the setting unless this really is a monitoring agent, and then run it outside the container.
+  tags: [compose, docker, isolation]
+files:
+  - docker-compose.yml
+  - docker-compose.yaml
+  - docker-compose.*.yml
+  - compose.yml
+  - compose.yaml
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*(?:pid|ipc)\s*:\s*["'']?host\b'
+
+---
+
+id: compose-dangerous-capabilities
+info:
+  name: Service granted sweeping Linux capabilities
+  severity: high
+  description: >-
+    SYS_ADMIN is close enough to root that it is often described as the new
+    root; SYS_MODULE loads kernel modules; SYS_PTRACE reads other processes'
+    memory. Adding ALL simply undoes the capability drop the runtime performs.
+  remediation: >-
+    Grant only the specific capability the workload needs — usually
+    NET_BIND_SERVICE — and drop the rest with cap_drop.
+  tags: [compose, docker, privilege, least-privilege]
+files:
+  - docker-compose.yml
+  - docker-compose.yaml
+  - docker-compose.*.yml
+  - compose.yml
+  - compose.yaml
+condition: and
+matchers:
+  - type: regex
+    context: true
+    patterns:
+      - '(?im)^\s*cap_add\s*:'
+  - type: regex
+    patterns:
+      - '(?im)^\s*-\s*["'']?(?:ALL|SYS_ADMIN|SYS_MODULE|SYS_PTRACE|NET_ADMIN|DAC_READ_SEARCH)["'']?\s*$'
+
+---
+
+id: compose-image-latest-tag
+info:
+  name: Service image pinned to :latest
+  severity: medium
+  description: >-
+    With :latest, docker compose up brings back a different image depending on
+    when it runs and what is already in the local cache. Two machines running
+    the same file end up on different builds.
+  remediation: Pin an explicit version tag, or a digest for images you do not publish.
+  tags: [compose, docker, supply-chain]
+files:
+  - docker-compose.yml
+  - docker-compose.yaml
+  - docker-compose.*.yml
+  - compose.yml
+  - compose.yaml
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*image\s*:\s*["'']?\S+:latest\b'
+
+---
+
+id: compose-database-port-published
+info:
+  name: Database port published to the host
+  severity: medium
+  description: >-
+    A short port mapping binds to every host interface, so "5432:5432" puts
+    the database on the public address of whatever machine runs the file. The
+    application container does not need this — it reaches the database over
+    the compose network by name.
+  remediation: >-
+    Drop the ports entry and rely on the compose network, or bind explicitly
+    to loopback with "127.0.0.1:5432:5432" when you need local access.
+  reference:
+    - https://docs.docker.com/compose/networking/
+  tags: [compose, docker, database, exposure, network]
+files:
+  - docker-compose.yml
+  - docker-compose.yaml
+  - docker-compose.*.yml
+  - compose.yml
+  - compose.yaml
+matchers:
+  - type: regex
+    comment: a mapping with a host address in front is deliberate and is left alone
+    patterns:
+      - '(?im)^\s*-\s*["'']?(?:3306|5432|27017|6379|9200|5672|11211|1433)\s*:\s*\d+["'']?\s*$'

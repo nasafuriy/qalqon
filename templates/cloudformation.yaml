@@ -1,0 +1,168 @@
+# AWS CloudFormation rules.
+#
+# The file globs are broad because CloudFormation templates are named every
+# way imaginable. Every rule therefore gates on something only a template has:
+# an AWSTemplateFormatVersion line, or a resource whose Type starts AWS::.
+
+id: cfn-s3-bucket-public-access
+info:
+  name: S3 bucket created with public access
+  severity: critical
+  description: >-
+    A PublicRead ACL, or a PublicAccessBlockConfiguration with the guards
+    switched off, makes objects readable by anyone who learns the URL.
+    Publicly exposed buckets remain one of the largest single causes of data
+    leaks.
+  remediation: >-
+    Use AccessControl Private, leave every PublicAccessBlockConfiguration flag
+    true, and serve public objects through CloudFront with an origin access
+    identity.
+  reference:
+    - https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-s3-bucket.html
+  tags: [cloudformation, aws, cloud, storage, exposure]
+files:
+  - "*.yaml"
+  - "*.yml"
+  - "*.json"
+  - "*.template"
+prefilter: ["AWS::", AWSTemplateFormatVersion]
+condition: and
+matchers:
+  - type: regex
+    context: true
+    patterns:
+      - '(?im)^\s*"?(?:AWSTemplateFormatVersion|Transform)"?\s*:'
+      - '(?im)^\s*"?Type"?\s*:\s*"?AWS::'
+  - type: regex
+    patterns:
+      - '(?im)^\s*"?AccessControl"?\s*:\s*"?Public(?:Read|ReadWrite)\b'
+      - '(?im)^\s*"?(?:BlockPublicAcls|BlockPublicPolicy|IgnorePublicAcls|RestrictPublicBuckets)"?\s*:\s*"?false\b'
+
+---
+
+id: cfn-security-group-open-to-world
+info:
+  name: Security group ingress open to the whole internet
+  severity: high
+  description: >-
+    CidrIp 0.0.0.0/0 on an ingress rule exposes the port to every host on the
+    internet. On an administrative port such as 22, 3389, 3306 or 6379 this is
+    how instances are compromised within hours of being created.
+  remediation: >-
+    Narrow CidrIp to the ranges that need access, or reference another
+    security group with SourceSecurityGroupId.
+  tags: [cloudformation, aws, cloud, network, exposure]
+files:
+  - "*.yaml"
+  - "*.yml"
+  - "*.json"
+  - "*.template"
+prefilter: ["0.0.0.0/0", "::/0"]
+condition: and
+matchers:
+  - type: regex
+    context: true
+    patterns:
+      - '(?im)^\s*"?Type"?\s*:\s*"?AWS::EC2::SecurityGroup'
+  - type: regex
+    patterns:
+      - '(?im)^\s*"?CidrIp"?\s*:\s*"?0\.0\.0\.0/0'
+      - '(?im)^\s*"?CidrIpv6"?\s*:\s*"?::/0'
+
+---
+
+id: cfn-iam-wildcard-policy
+info:
+  name: IAM policy grants every action
+  severity: high
+  description: >-
+    A statement allowing Action "*" on Resource "*" hands the principal full
+    control of the account. Any credential that picks it up becomes a total
+    compromise rather than a contained one.
+  remediation: List the specific actions and the specific resource ARNs the principal needs.
+  reference:
+    - https://docs.aws.amazon.com/IAM/latest/UserGuide/best-practices.html
+  tags: [cloudformation, aws, cloud, iam, least-privilege]
+files:
+  - "*.yaml"
+  - "*.yml"
+  - "*.json"
+  - "*.template"
+prefilter: ["AWS::IAM", '"Action"', "Action:"]
+condition: and
+matchers:
+  - type: regex
+    context: true
+    patterns:
+      - '(?im)^\s*"?Type"?\s*:\s*"?AWS::IAM::'
+  - type: regex
+    context: true
+    comment: a statement is a list item, so the key can carry a leading dash
+    patterns:
+      - '(?im)^\s*-?\s*"?Effect"?\s*:\s*"?Allow\b'
+  - type: regex
+    patterns:
+      - '(?im)^\s*-?\s*"?Action"?\s*:\s*(?:\[\s*)?["'']\*["'']'
+      - '(?im)^\s*-\s*["'']\*["'']\s*$'
+
+---
+
+id: cfn-database-unencrypted
+info:
+  name: RDS instance created without encryption at rest
+  severity: medium
+  description: >-
+    StorageEncrypted defaults to false, and it cannot be turned on in place —
+    an unencrypted instance has to be snapshotted, copied with encryption and
+    restored. Getting it right at creation is the only cheap moment.
+  remediation: Set StorageEncrypted true, and KmsKeyId if you want a customer-managed key.
+  tags: [cloudformation, aws, cloud, database, encryption]
+files:
+  - "*.yaml"
+  - "*.yml"
+  - "*.json"
+  - "*.template"
+prefilter: ["AWS::RDS::"]
+condition: and
+matchers:
+  - type: regex
+    context: true
+    patterns:
+      - '(?im)^\s*"?Type"?\s*:\s*"?AWS::RDS::DB(?:Instance|Cluster)'
+  - type: absent
+    patterns:
+      - '(?im)^\s*"?StorageEncrypted"?\s*:\s*"?true\b'
+
+---
+
+id: cfn-hardcoded-credential
+info:
+  name: Credential written into a CloudFormation template
+  severity: critical
+  description: >-
+    A literal MasterUserPassword is committed to the repository and is
+    readable in the stack's parameters and events afterwards. CloudFormation
+    keeps template bodies, so deleting the line later does not unpublish it.
+  remediation: >-
+    Use a NoEcho parameter, or better, a dynamic reference to Secrets Manager
+    such as "{{resolve:secretsmanager:prod/db:SecretString:password}}".
+  reference:
+    - https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/dynamic-references.html
+  tags: [cloudformation, aws, cloud, secret, credential]
+files:
+  - "*.yaml"
+  - "*.yml"
+  - "*.json"
+  - "*.template"
+prefilter: ["AWS::", AWSTemplateFormatVersion]
+condition: and
+matchers:
+  - type: regex
+    context: true
+    patterns:
+      - '(?im)^\s*"?(?:AWSTemplateFormatVersion|Transform)"?\s*:'
+      - '(?im)^\s*"?Type"?\s*:\s*"?AWS::'
+  - type: regex
+    comment: '!Ref, !Sub and {{resolve:...}} are references, not literals'
+    patterns:
+      - '(?im)^\s*"?(?:MasterUserPassword|MasterPassword|Password|SecretString)"?\s*:\s*["'']?[^\s!{"''][^\s]{7,}'

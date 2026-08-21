@@ -1,0 +1,14 @@
+api:
+  insecure: true
+
+entryPoints:
+  websecure:
+    address: ":443"
+
+tls:
+  options:
+    default:
+      minVersion: VersionTLS10
+
+serversTransport:
+  insecureSkipVerify: true

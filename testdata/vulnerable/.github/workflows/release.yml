@@ -1,0 +1,26 @@
+name: Fixture — deliberately unsafe release workflow
+on:
+  workflow_run:
+    workflows: [build]
+    types: [completed]
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Install the release tool
+        run: curl -sSL https://get.example.com/release.sh | sh
+
+      - name: Publish
+        run: echo "${{ secrets.NPM_TOKEN }}" > ~/.npmrc
+
+  notify:
+    uses: ./.github/workflows/notify.yml
+    secrets: inherit

@@ -24,11 +24,14 @@ files:
   - conf.d/*.conf
 matchers:
   - type: regex
-    comment: the trailing class avoids matching TLSv1.2 and TLSv1.3
+    comment: >-
+      the trailing class avoids matching TLSv1.2 and TLSv1.3. [^;\n] rather
+      than [^;]: a negated class matches newlines too, so without excluding
+      them the directive would run on into later lines.
     patterns:
-      - '(?im)^\s*ssl_protocols[^;]*\bSSLv[23]\b'
-      - '(?im)^\s*ssl_protocols[^;]*\bTLSv1\.1\b'
-      - '(?im)^\s*ssl_protocols[^;]*\bTLSv1[^.\d]'
+      - '(?im)^\s*ssl_protocols[^;\n]*\bSSLv[23]\b'
+      - '(?im)^\s*ssl_protocols[^;\n]*\bTLSv1\.1\b'
+      - '(?im)^\s*ssl_protocols[^;\n]*\bTLSv1[^.\d]'
 
 ---
 
@@ -54,9 +57,12 @@ files:
 condition: and
 matchers:
   - type: regex
-    comment: only TLS servers
+    comment: >-
+      only TLS servers. [^;\n] rather than [^;]: a negated class matches
+      newlines, so "listen_addresses" in a postgresql.conf would otherwise
+      reach an "ssl = on" several lines later and fire this rule.
     patterns:
-      - '(?im)^\s*listen[^;]*\bssl\b'
+      - '(?im)^\s*listen[^;\n]*\bssl\b'
   - type: absent
     patterns:
       - '(?i)Strict-Transport-Security'
@@ -86,6 +92,92 @@ matchers:
   - type: absent
     patterns:
       - '(?im)^\s*server_tokens\s+off\s*;'
+
+---
+
+id: nginx-autoindex-enabled
+info:
+  name: Directory listing enabled
+  severity: medium
+  description: >-
+    autoindex on lists whatever is in the directory — backups, editor swap
+    files, an accidentally deployed .git. It is how private files get found
+    without anyone having to guess a name.
+  remediation: 'Set: autoindex off; and serve an explicit index file.'
+  tags: [nginx, exposure]
+files:
+  - nginx.conf
+  - "*.nginx.conf"
+  - "*.conf"
+  - sites-available/*
+  - sites-enabled/*
+  - conf.d/*.conf
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*autoindex\s+on\s*;'
+
+---
+
+id: nginx-weak-ssl-ciphers
+info:
+  name: Obsolete cipher suites enabled
+  severity: high
+  description: >-
+    RC4, single DES, export grades, MD5 and the anonymous suites are all
+    broken well past the point of academic interest. Offering them gives an
+    attacker something to negotiate a connection down to.
+  remediation: >-
+    Use the Mozilla intermediate list, or at minimum append
+    "!aNULL:!MD5:!DES:!RC4:!EXPORT" to ssl_ciphers.
+  reference:
+    - https://ssl-config.mozilla.org/
+  tags: [nginx, tls, crypto]
+files:
+  - nginx.conf
+  - "*.nginx.conf"
+  - "*.conf"
+  - sites-available/*
+  - sites-enabled/*
+  - conf.d/*.conf
+matchers:
+  - type: regex
+    comment: >-
+      the negation form "!RC4" disables the suite, so only match a name that
+      is not immediately preceded by an exclamation mark
+    patterns:
+      - '(?im)^\s*ssl_ciphers[^;\n]*[:\s"]{1}(?:RC4|DES-CBC3|EXPORT|aNULL|eNULL|NULL-MD5|ADH)\b'
+
+---
+
+id: nginx-missing-content-type-options
+info:
+  name: TLS server does not send X-Content-Type-Options
+  severity: low
+  description: >-
+    Without nosniff a browser may ignore the declared Content-Type and guess
+    from the bytes, which turns an uploaded text file into executable script
+    in the site's own origin.
+  remediation: 'Add: add_header X-Content-Type-Options "nosniff" always;'
+  reference:
+    - https://developer.mozilla.org/docs/Web/HTTP/Headers/X-Content-Type-Options
+  tags: [nginx, headers, hardening]
+files:
+  - nginx.conf
+  - "*.nginx.conf"
+  - "*.conf"
+  - sites-available/*
+  - sites-enabled/*
+  - conf.d/*.conf
+condition: and
+matchers:
+  - type: regex
+    comment: only TLS servers, on the same reasoning as nginx-missing-hsts
+    patterns:
+      - '(?im)^\s*listen[^;\n]*\bssl\b'
+  - type: absent
+    patterns:
+      - '(?i)X-Content-Type-Options'
 
 ---
 

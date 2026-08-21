@@ -3,8 +3,16 @@ services:
     image: postgres:16
     privileged: true
     network_mode: host
+    pid: host
     restart: always
+    cap_add:
+      - SYS_ADMIN
+    ports:
+      - "5432:5432"
     environment:
       POSTGRES_PASSWORD: hunter2fixture
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+
+  cache:
+    image: redis:latest

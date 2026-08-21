@@ -11,11 +11,11 @@ import (
 
 // Report is the shape of --json output.
 type Report struct {
-	Tool     string            `json:"tool"`
-	Version  string            `json:"version"`
-	Root     string            `json:"root"`
-	Findings []engine.Finding  `json:"findings"`
-	Summary  Summary           `json:"summary"`
+	Tool     string           `json:"tool"`
+	Version  string           `json:"version"`
+	Root     string           `json:"root"`
+	Findings []engine.Finding `json:"findings"`
+	Summary  Summary          `json:"summary"`
 }
 
 // Summary is the machine-readable tally.

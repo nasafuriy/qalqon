@@ -115,3 +115,96 @@ matchers:
   - type: regex
     patterns:
       - '(?im)^\s*AllowOverride\s+All\b'
+
+---
+
+id: apache-weak-ssl-ciphers
+info:
+  name: Obsolete cipher suites enabled
+  severity: high
+  description: >-
+    RC4, single DES, the export grades, MD5 and the anonymous suites are
+    broken well past the point of academic interest. Offering them gives an
+    attacker a weaker connection to negotiate down to.
+  remediation: >-
+    Use the Mozilla intermediate list, or at minimum append
+    "!aNULL:!MD5:!DES:!RC4:!EXPORT" to SSLCipherSuite.
+  reference:
+    - https://ssl-config.mozilla.org/
+  tags: [apache, httpd, tls, crypto]
+files:
+  - httpd.conf
+  - apache2.conf
+  - ssl.conf
+  - sites-available/*
+  - sites-enabled/*
+  - conf.d/*.conf
+matchers:
+  - type: regex
+    comment: '"!RC4" disables the suite, so require a separator that is not an exclamation mark'
+    patterns:
+      - '(?im)^\s*SSLCipherSuite[^\n]*[:\s"](?:RC4|DES-CBC3|EXPORT|aNULL|eNULL|ADH|MD5)\b'
+
+---
+
+id: apache-missing-hsts
+info:
+  name: TLS virtual host does not send HSTS
+  severity: medium
+  description: >-
+    Without Strict-Transport-Security a browser that has only ever seen the
+    site over HTTPS will still try plain HTTP on the next visit, which leaves
+    room for an active network attacker to strip TLS.
+  remediation: 'Add: Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains"'
+  reference:
+    - https://developer.mozilla.org/docs/Web/HTTP/Headers/Strict-Transport-Security
+  tags: [apache, httpd, tls, headers]
+files:
+  - httpd.conf
+  - apache2.conf
+  - ssl.conf
+  - sites-available/*
+  - sites-enabled/*
+  - conf.d/*.conf
+condition: and
+matchers:
+  - type: regex
+    context: true
+    patterns:
+      - '(?im)^\s*SSLEngine\s+on\b'
+  - type: absent
+    patterns:
+      - '(?i)Strict-Transport-Security'
+
+---
+
+id: apache-server-status-exposed
+info:
+  name: mod_status published without an access restriction
+  severity: medium
+  description: >-
+    /server-status lists the current requests with their full URLs, the client
+    addresses and the vhosts serving them. Left open it is a live feed of who
+    is doing what, and it frequently leaks session tokens carried in query
+    strings.
+  remediation: 'Add a "Require ip" or "Require local" line inside the Location block, or disable mod_status.'
+  reference:
+    - https://httpd.apache.org/docs/current/mod/mod_status.html
+  tags: [apache, httpd, exposure]
+files:
+  - httpd.conf
+  - apache2.conf
+  - ssl.conf
+  - sites-available/*
+  - sites-enabled/*
+  - conf.d/*.conf
+condition: and
+matchers:
+  - type: regex
+    context: true
+    patterns:
+      - '(?im)^\s*<Location\s+/server-status\s*>'
+  - type: absent
+    comment: any Require anywhere in the file stands the rule down rather than guess at scope
+    patterns:
+      - '(?im)^\s*Require\s+\S+'

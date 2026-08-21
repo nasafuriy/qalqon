@@ -1,0 +1,74 @@
+# MongoDB server rules.
+
+id: mongodb-authorization-disabled
+info:
+  name: MongoDB running without access control
+  severity: critical
+  description: >-
+    With authorization disabled every connection is an administrator. Ransom
+    campaigns have repeatedly swept the internet for exactly this, dropping
+    databases and leaving a payment note in their place.
+  remediation: >-
+    Set security.authorization to enabled, create an administrative user, and
+    give the application a role scoped to its own database.
+  reference:
+    - https://www.mongodb.com/docs/manual/core/authorization/
+  tags: [mongodb, database, auth]
+files:
+  - mongod.conf
+  - mongodb.conf
+  - mongod-*.conf
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*authorization\s*:\s*["'']?disabled\b'
+
+---
+
+id: mongodb-bound-to-all-interfaces
+info:
+  name: MongoDB listening on every interface
+  severity: high
+  description: >-
+    bindIp 0.0.0.0 publishes the database on every address the host owns. The
+    default of 127.0.0.1 exists precisely because the combination of a public
+    bind and weak access control has caused repeated mass compromises.
+  remediation: List the specific private addresses that need access, or use bindIpAll only behind a firewall you control.
+  tags: [mongodb, database, exposure, network]
+files:
+  - mongod.conf
+  - mongodb.conf
+  - mongod-*.conf
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*bindIp\s*:\s*["'']?0\.0\.0\.0'
+      - '(?im)^\s*bindIpAll\s*:\s*true\b'
+
+---
+
+id: mongodb-tls-disabled
+info:
+  name: MongoDB accepts connections without TLS
+  severity: medium
+  description: >-
+    net.tls.mode disabled means credentials and documents cross the network in
+    clear. Mongo's SCRAM exchange protects the password itself, but every
+    query and every result is readable to anything on the path.
+  remediation: 'Set net.tls.mode to requireTLS with a certificate, and point clients at the CA.'
+  reference:
+    - https://www.mongodb.com/docs/manual/tutorial/configure-ssl/
+  tags: [mongodb, database, tls]
+files:
+  - mongod.conf
+  - mongodb.conf
+  - mongod-*.conf
+condition: and
+matchers:
+  - type: regex
+    context: true
+    patterns:
+      - '(?im)^\s*tls\s*:'
+  - type: regex
+    patterns:
+      - '(?im)^\s*mode\s*:\s*["'']?disabled\b'

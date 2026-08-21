@@ -1,7 +1,9 @@
 package qalqon_test
 
 import (
+	"bytes"
 	"context"
+	"crypto/tls"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -172,6 +174,35 @@ func TestProbeReportsVerificationFailure(t *testing.T) {
 	if result.Status != http.StatusOK {
 		t.Errorf("expected the request to still complete, got status %d", result.Status)
 	}
+}
+
+// A scanner that cannot connect to a weak server cannot report it. Go's http
+// client refuses anything below TLS 1.2 by default, which silently turned
+// every obsolete-protocol finding into a connection error. The probe lowers
+// its own floor on purpose; this is the test that keeps it lowered.
+func TestProbeReachesObsoleteTLSServer(t *testing.T) {
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("ok"))
+	}))
+	// Both bounds: a server's default MinVersion is TLS 1.2, so setting only
+	// MaxVersion leaves an empty range and the handshake fails for the wrong
+	// reason.
+	srv.TLS = &tls.Config{ //nolint:gosec // an obsolete server is the fixture
+		MinVersion: tls.VersionTLS10,
+		MaxVersion: tls.VersionTLS11,
+	}
+	srv.StartTLS()
+	defer srv.Close()
+
+	result, err := probe.Fetch(context.Background(), srv.URL, probe.Options{})
+	if err != nil {
+		t.Fatalf("probe could not reach a TLS 1.1 server: %v", err)
+	}
+	if want := []byte("version: TLS 1.1"); !bytes.Contains(result.Parts["tls"], want) {
+		t.Errorf("tls part does not report the negotiated version:\n%s", result.Parts["tls"])
+	}
+
+	mustFind(t, ids(probeServer(t, srv)), "tls-obsolete-protocol")
 }
 
 func TestUnreachableTargetIsNotAFinding(t *testing.T) {

@@ -1,0 +1,12 @@
+image:
+  repository: registry.example.com/app
+  tag: latest
+  pullPolicy: Always
+
+hostNetwork: true
+
+securityContext:
+  privileged: true
+
+auth:
+  password: changeme-fixture

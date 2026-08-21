@@ -121,7 +121,16 @@ func normalise(target string) (*url.URL, error) {
 
 func do(ctx context.Context, target *url.URL, opts Options, skipVerify bool) (*Result, error) {
 	transport := &http.Transport{
-		TLSClientConfig:     &tls.Config{InsecureSkipVerify: skipVerify}, //nolint:gosec // deliberate, see Fetch
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: skipVerify, //nolint:gosec // deliberate, see Fetch
+			// Go's client refuses anything below TLS 1.2 by default, which is
+			// the right default for a client fetching data and the wrong one
+			// for a scanner: it turns "this server still speaks TLS 1.0" into
+			// a connection error instead of the finding the user came for.
+			// Reporting the weak version is the entire point, so reach down
+			// far enough to observe it.
+			MinVersion: tls.VersionTLS10, //nolint:gosec // scanner: must reach the servers it reports on
+		},
 		DisableCompression:  false,
 		MaxIdleConnsPerHost: 1,
 	}

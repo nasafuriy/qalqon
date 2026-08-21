@@ -1,0 +1,26 @@
+include:
+  - remote: https://ci.example.com/shared/build.yml
+
+stages:
+  - build
+  - deploy
+
+variables:
+  DOCKER_TLS_CERTDIR: ""
+  GIT_SSL_NO_VERIFY: "true"
+  DEPLOY_PASSWORD: "hunter2-fixture-value"
+
+build:
+  stage: build
+  image: docker:latest
+  services:
+    - docker:24-dind
+  script:
+    - curl -sSL https://get.example.com/install.sh | sh
+    - docker build -t app .
+
+deploy:
+  stage: deploy
+  image: alpine:3.19
+  script:
+    - curl -k https://deploy.example.com/hook

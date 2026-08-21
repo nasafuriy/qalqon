@@ -1,0 +1,14 @@
+image:
+  repository: registry.example.com/app
+  tag: "1.8.3"
+  pullPolicy: IfNotPresent
+
+hostNetwork: false
+
+securityContext:
+  privileged: false
+  runAsNonRoot: true
+
+auth:
+  existingSecret: app-database
+  password: ""

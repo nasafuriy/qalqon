@@ -1,0 +1,106 @@
+# MySQL and MariaDB server rules.
+
+id: mysql-skip-grant-tables
+info:
+  name: MySQL started with the permission system disabled
+  severity: critical
+  description: >-
+    skip-grant-tables makes the server ignore every privilege check, so any
+    client that connects arrives as a full administrator with no password.
+    It exists for password recovery and should never survive into a
+    committed configuration file.
+  remediation: >-
+    Remove the option. If you are recovering a lost root password, do it in a
+    one-off invocation with skip-networking, not in my.cnf.
+  reference:
+    - https://dev.mysql.com/doc/refman/8.0/en/server-options.html
+  tags: [mysql, mariadb, database, auth]
+files:
+  - my.cnf
+  - "*.cnf"
+  - mysqld.cnf
+  - mysql.conf.d/*.cnf
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*skip[-_]grant[-_]tables\b'
+
+---
+
+id: mysql-plaintext-password-in-config
+info:
+  name: MySQL password stored in a committed option file
+  severity: high
+  description: >-
+    A password under [client] or [mysqldump] is read by every invocation of
+    the tools, and the file is world-readable often enough that this is how
+    credentials leak between accounts on a shared host.
+  remediation: >-
+    Use mysql_config_editor to write an obfuscated .mylogin.cnf outside the
+    repository, or supply the credential through the environment at run time.
+  tags: [mysql, mariadb, database, secret, credential]
+files:
+  - my.cnf
+  - "*.cnf"
+  - mysqld.cnf
+  - mysql.conf.d/*.cnf
+exclude:
+  - "*.example"
+  - "*.sample"
+matchers:
+  - type: regex
+    comment: environment references and empty values are fine
+    patterns:
+      - '(?im)^\s*password\s*=\s*"?[^\s${"''][^\s]{5,}'
+
+---
+
+id: mysql-local-infile-enabled
+info:
+  name: MySQL LOAD DATA LOCAL left enabled
+  severity: medium
+  description: >-
+    With local_infile on, a database server — or anything impersonating one —
+    can ask the client to send the contents of a local file, and the client
+    complies. An application with a SQL injection becomes a file read on the
+    application host.
+  remediation: Set local_infile=0 on the server, and pass --local-infile=0 to clients that do not need it.
+  reference:
+    - https://dev.mysql.com/doc/refman/8.0/en/load-data-local-security.html
+  tags: [mysql, mariadb, database, hardening]
+files:
+  - my.cnf
+  - "*.cnf"
+  - mysqld.cnf
+  - mysql.conf.d/*.cnf
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*local[-_]infile\s*=\s*(?:1|on|true)\b'
+
+---
+
+id: mysql-bound-to-all-interfaces
+info:
+  name: MySQL listening on every interface
+  severity: medium
+  description: >-
+    bind-address 0.0.0.0 exposes the server on every address the host has.
+    MySQL's authentication is the only thing left in the way, and brute-force
+    traffic against 3306 is constant.
+  remediation: Bind to 127.0.0.1 or a specific private address, and keep 3306 closed at the firewall.
+  tags: [mysql, mariadb, database, exposure, network]
+files:
+  - my.cnf
+  - "*.cnf"
+  - mysqld.cnf
+  - mysql.conf.d/*.cnf
+condition: and
+matchers:
+  - type: regex
+    context: true
+    patterns:
+      - '(?im)^\s*\[mysqld\]'
+  - type: regex
+    patterns:
+      - '(?im)^\s*bind[-_]address\s*=\s*(?:0\.0\.0\.0|\*|::)\s*$'

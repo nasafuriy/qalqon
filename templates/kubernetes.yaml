@@ -173,6 +173,189 @@ matchers:
 
 ---
 
+id: k8s-capabilities-not-dropped
+info:
+  name: Container keeps the default capability set
+  severity: medium
+  description: >-
+    A container that never drops capabilities keeps the runtime default, which
+    still includes CHOWN, SETUID, NET_RAW and others. NET_RAW alone is enough
+    to forge packets and mount ARP spoofing from inside the pod.
+  remediation: >-
+    Drop ALL under securityContext.capabilities, then add back only the ones
+    the workload genuinely needs.
+  reference:
+    - https://kubernetes.io/docs/concepts/security/pod-security-standards/
+  tags: [kubernetes, k8s, privilege, least-privilege]
+files:
+  - "*.yaml"
+  - "*.yml"
+condition: and
+matchers:
+  - type: regex
+    context: true
+    patterns:
+      - '(?im)^\s*kind:\s*(?:Pod|Deployment|StatefulSet|DaemonSet|Job|CronJob)\b'
+  - type: regex
+    patterns:
+      - '(?im)^\s*containers:'
+  - type: absent
+    patterns:
+      - '(?im)^\s*drop\s*:'
+
+---
+
+id: k8s-writable-root-filesystem
+info:
+  name: Container root filesystem is writable
+  severity: medium
+  description: >-
+    Without readOnlyRootFilesystem an attacker who lands code execution can
+    write a payload anywhere in the image and have it survive until the pod
+    restarts. Most workloads only need to write to a mounted volume and /tmp.
+  remediation: >-
+    Set readOnlyRootFilesystem true and mount an emptyDir at the few paths the
+    process really writes to.
+  reference:
+    - https://kubernetes.io/docs/tasks/configure-pod-container/security-context/
+  tags: [kubernetes, k8s, hardening]
+files:
+  - "*.yaml"
+  - "*.yml"
+condition: and
+matchers:
+  - type: regex
+    context: true
+    patterns:
+      - '(?im)^\s*kind:\s*(?:Pod|Deployment|StatefulSet|DaemonSet|Job|CronJob)\b'
+  - type: regex
+    patterns:
+      - '(?im)^\s*containers:'
+  - type: absent
+    patterns:
+      - '(?im)^\s*readOnlyRootFilesystem:\s*true\b'
+
+---
+
+id: k8s-service-account-token-automounted
+info:
+  name: Service account token mounted into a pod that does not use it
+  severity: medium
+  description: >-
+    By default Kubernetes mounts a service account token into every container.
+    Any code execution in the pod therefore comes with an API credential
+    attached, which turns a contained bug into a foothold on the cluster.
+  remediation: >-
+    Set automountServiceAccountToken false on the pod spec, or on the service
+    account, and opt in only where the workload calls the API.
+  reference:
+    - https://kubernetes.io/docs/tasks/configure-pod-container/configure-service-account/
+  tags: [kubernetes, k8s, least-privilege]
+files:
+  - "*.yaml"
+  - "*.yml"
+condition: and
+matchers:
+  - type: regex
+    context: true
+    patterns:
+      - '(?im)^\s*kind:\s*(?:Pod|Deployment|StatefulSet|DaemonSet|Job|CronJob)\b'
+  - type: regex
+    patterns:
+      - '(?im)^\s*containers:'
+  - type: absent
+    patterns:
+      - '(?im)^\s*automountServiceAccountToken:\s*false\b'
+
+---
+
+id: k8s-rbac-wildcard-permissions
+info:
+  name: Role grants every verb or every resource
+  severity: high
+  description: >-
+    A wildcard under apiGroups, resources or verbs grants far more than the
+    author usually intends — including secrets, and including the verbs that
+    let a holder escalate to cluster administrator.
+  remediation: List the specific apiGroups, resources and verbs the subject needs.
+  reference:
+    - https://kubernetes.io/docs/reference/access-authn-authz/rbac/
+  tags: [kubernetes, k8s, rbac, least-privilege]
+files:
+  - "*.yaml"
+  - "*.yml"
+condition: and
+matchers:
+  - type: regex
+    context: true
+    comment: the trailing anchor keeps this off RoleBinding and ClusterRoleBinding
+    patterns:
+      - '(?im)^\s*kind:\s*(?:Cluster)?Role\s*$'
+  - type: regex
+    comment: a rule is a list item, so the key can carry a leading dash
+    patterns:
+      - '(?im)^\s*-?\s*(?:apiGroups|resources|verbs)\s*:\s*\[\s*["'']?\*'
+      - '(?im)^\s*-\s*["'']\*["'']\s*$'
+
+---
+
+id: k8s-cluster-admin-binding
+info:
+  name: Subject bound to cluster-admin
+  severity: critical
+  description: >-
+    cluster-admin is unrestricted control of the cluster and everything
+    running in it. Binding a service account or a group to it removes any
+    meaningful boundary between that workload and the whole platform.
+  remediation: >-
+    Bind a role scoped to the namespaces and resources the subject needs, or
+    write one. Keep cluster-admin for named humans breaking glass.
+  tags: [kubernetes, k8s, rbac, privilege]
+files:
+  - "*.yaml"
+  - "*.yml"
+condition: and
+matchers:
+  - type: regex
+    context: true
+    patterns:
+      - '(?im)^\s*kind:\s*(?:Cluster)?RoleBinding\s*$'
+  - type: regex
+    patterns:
+      - '(?im)^\s*name:\s*["'']?cluster-admin["'']?\s*$'
+
+---
+
+id: k8s-ingress-without-tls
+info:
+  name: Ingress serves plaintext HTTP
+  severity: medium
+  description: >-
+    An Ingress with no tls block terminates plain HTTP at the edge, so
+    credentials and session cookies cross the internet in clear and the
+    browser has no way to know it should have been encrypted.
+  remediation: >-
+    Add a tls section referencing a certificate secret, and annotate the
+    Ingress to redirect HTTP to HTTPS.
+  tags: [kubernetes, k8s, tls, ingress]
+files:
+  - "*.yaml"
+  - "*.yml"
+condition: and
+matchers:
+  - type: regex
+    context: true
+    patterns:
+      - '(?im)^\s*kind:\s*Ingress\s*$'
+  - type: regex
+    patterns:
+      - '(?im)^\s*rules\s*:'
+  - type: absent
+    patterns:
+      - '(?im)^\s*tls\s*:'
+
+---
+
 id: k8s-image-latest-tag
 info:
   name: Workload image pinned to :latest

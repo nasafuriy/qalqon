@@ -1,0 +1,100 @@
+# HAProxy configuration rules.
+
+id: haproxy-ssl-verify-none
+info:
+  name: HAProxy does not verify the backend certificate
+  severity: high
+  description: >-
+    "verify none" on an ssl server line means HAProxy encrypts the connection
+    to the backend but never checks who answered. That leaves the internal leg
+    open to anyone who can win a race for the address.
+  remediation: >-
+    Use "verify required" with a "ca-file" pointing at the CA that issued the
+    backend certificate.
+  reference:
+    - https://docs.haproxy.org/2.8/configuration.html
+  tags: [haproxy, proxy, tls]
+files:
+  - haproxy.cfg
+  - "*.haproxy.cfg"
+  - haproxy/*.cfg
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*server\s+\S+\s+\S+[^\n]*\bssl\b[^\n]*\bverify\s+none\b'
+
+---
+
+id: haproxy-weak-tls-version
+info:
+  name: HAProxy accepts obsolete TLS versions
+  severity: high
+  description: >-
+    A minimum of TLSv1.0 or TLSv1.1, or an explicit force-tlsv10, keeps
+    protocol versions alive that browsers already refuse and that carry known
+    weaknesses.
+  remediation: 'Use "ssl-min-ver TLSv1.2" on the bind line, or set it globally with "ssl-default-bind-options ssl-min-ver TLSv1.2".'
+  tags: [haproxy, proxy, tls, crypto]
+files:
+  - haproxy.cfg
+  - "*.haproxy.cfg"
+  - haproxy/*.cfg
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*(?:bind|ssl-default-bind-options)[^\n]*\bssl-min-ver\s+TLSv1\.[01]\b'
+      - '(?im)^\s*(?:bind|ssl-default-bind-options)[^\n]*\bforce-tlsv1[01]\b'
+
+---
+
+id: haproxy-stats-without-auth
+info:
+  name: HAProxy stats page served without authentication
+  severity: medium
+  description: >-
+    The stats page lists every backend, its health and its traffic. Published
+    without auth it is a free map of the internal topology, and with the admin
+    directive it also lets a visitor disable servers.
+  remediation: >-
+    Add "stats auth user:password" — or better, bind the stats listener to an
+    internal address only.
+  tags: [haproxy, proxy, exposure, auth]
+files:
+  - haproxy.cfg
+  - "*.haproxy.cfg"
+  - haproxy/*.cfg
+condition: and
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*stats\s+uri\s+\S+'
+  - type: absent
+    patterns:
+      - '(?im)^\s*stats\s+auth\s+\S+'
+
+---
+
+id: haproxy-missing-forwarded-proto
+info:
+  name: TLS terminated without telling the backend
+  severity: low
+  description: >-
+    When HAProxy terminates TLS and forwards plain HTTP, the application sees
+    an http request and can generate http redirects and insecure cookies
+    unless it is told the original scheme.
+  remediation: 'Add: http-request set-header X-Forwarded-Proto https'
+  tags: [haproxy, proxy, headers]
+files:
+  - haproxy.cfg
+  - "*.haproxy.cfg"
+  - haproxy/*.cfg
+condition: and
+matchers:
+  - type: regex
+    context: true
+    patterns:
+      - '(?im)^\s*bind\s+[^\n]*\bssl\b[^\n]*\bcrt\b'
+  - type: absent
+    comment: forwardfor sets X-Forwarded-For, which is a different header and not a substitute
+    patterns:
+      - '(?im)^\s*http-request\s+set-header\s+X-Forwarded-Proto\b'

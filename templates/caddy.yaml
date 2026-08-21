@@ -1,0 +1,76 @@
+# Caddy rules.
+#
+# Caddy's defaults are unusually good, so these rules are all about the
+# handful of directives that switch a safe default back off.
+
+id: caddy-auto-https-disabled
+info:
+  name: Automatic HTTPS turned off
+  severity: medium
+  description: >-
+    auto_https off stops Caddy issuing and renewing certificates and stops the
+    HTTP-to-HTTPS redirect, which is the single feature most deployments
+    install Caddy for.
+  remediation: >-
+    Leave auto_https alone. If a load balancer already terminates TLS, use
+    "auto_https disable_redirects" rather than switching the whole thing off.
+  reference:
+    - https://caddyserver.com/docs/caddyfile/options#auto-https
+  tags: [caddy, proxy, tls]
+files:
+  - Caddyfile
+  - Caddyfile.*
+  - "*.caddyfile"
+  - caddy/Caddyfile
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*auto_https\s+off\b'
+
+---
+
+id: caddy-tls-verification-disabled
+info:
+  name: Caddy does not verify the upstream certificate
+  severity: high
+  description: >-
+    tls_insecure_skip_verify makes reverse_proxy accept any certificate the
+    backend presents. The hop is encrypted but unauthenticated, which is not
+    what the configuration looks like it is doing.
+  remediation: >-
+    Point tls_trusted_ca_certs at the CA that signed the backend certificate,
+    or use tls_server_name when the mismatch is only a name.
+  reference:
+    - https://caddyserver.com/docs/caddyfile/directives/reverse_proxy
+  tags: [caddy, proxy, tls]
+files:
+  - Caddyfile
+  - Caddyfile.*
+  - "*.caddyfile"
+  - caddy/Caddyfile
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*tls_insecure_skip_verify\b'
+
+---
+
+id: caddy-directory-listing
+info:
+  name: Directory browsing enabled
+  severity: low
+  description: >-
+    file_server browse lists whatever is in the directory, including backups,
+    editor swap files and anything dropped there by mistake. It is how private
+    files get found without anyone guessing a name.
+  remediation: Drop "browse" and serve an explicit index file.
+  tags: [caddy, proxy, exposure]
+files:
+  - Caddyfile
+  - Caddyfile.*
+  - "*.caddyfile"
+  - caddy/Caddyfile
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*file_server\s+browse\b'

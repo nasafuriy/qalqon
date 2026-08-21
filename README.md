@@ -5,14 +5,15 @@
 **Find the configuration mistake before it ships.**
 
 A single Go binary that scans a repository for insecure Docker, Compose, Kubernetes,
-Terraform, nginx, Apache, sshd, systemd, PHP and GitHub Actions configuration — and for
-credentials that should never have been committed. It can also check the security
-headers and TLS posture of hosts you run.
+Helm, Terraform, CloudFormation, Ansible, GitHub Actions, GitLab CI, nginx, Apache,
+Caddy, Traefik, HAProxy, Envoy, sshd, systemd, PHP, PostgreSQL, MySQL, MongoDB and
+Redis configuration — and for credentials that should never have been committed. It can
+also check the security headers and TLS posture of hosts you run.
 
 [![Go Reference](https://img.shields.io/badge/go-1.22%2B-00ADD8.svg)](https://go.dev)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Single binary](https://img.shields.io/badge/install-one%20binary-brightgreen.svg)](#install)
-[![Templates](https://img.shields.io/badge/templates-74-informational.svg)](templates/)
+[![Templates](https://img.shields.io/badge/templates-166-informational.svg)](templates/)
 
 <img src="docs/demo-scan.png" alt="qalqon scanning a project and reporting seven findings across a Dockerfile, a compose file and a workflow" width="880">
 
@@ -237,22 +238,40 @@ qalqon validate ./my-templates
 qalqon scan ./testdata -t ./my-templates -no-builtin
 ```
 
+## Coverage
+
+166 templates: 148 that read files, and 18 that read a live HTTP response.
+
+| Area | Covered by |
+|---|---|
+| Containers | Dockerfile, Compose |
+| Orchestration | Kubernetes workloads, RBAC, Ingress, Helm charts and values |
+| Infrastructure as code | Terraform (AWS, GCP, Azure), CloudFormation, Ansible |
+| CI | GitHub Actions, GitLab CI |
+| Web and proxies | nginx, Apache, Caddy, Traefik, HAProxy, Envoy |
+| Databases | PostgreSQL, MySQL/MariaDB, MongoDB, Redis |
+| Hosts | sshd, systemd, PHP |
+| Credentials | private keys, AWS, GCP, Stripe, Slack, JWTs, provider tokens, connection strings |
+
+`qalqon templates` prints the current list with severities and tags.
+
 ## Performance
 
-Measured on 32 cores over the Go standard library source tree:
+Measured on 32 cores over the Go standard library source tree, warm page cache:
 
 | | |
 |---|---|
 | Files walked | 10,382 |
-| Files read | 7,307 |
-| Templates | 56 |
-| **Wall time** | **339 ms** |
-| Single worker (`-c 1`) | ~7 s |
+| Files read | 7,307 (65.8 MB) |
+| Templates | 148 |
+| **Wall time** | **415 ms** |
+| Single worker (`-c 1`) | 3.2 s |
 
-Two things make that possible. Files are only read when a template's file globs already
-matched the name, so most of a tree is skipped without touching the disk. Then
-`prefilter` rules out a template with a plain substring search before any regex runs —
-that alone took this scan from 922 ms to 261 ms.
+Two things keep that flat as the library grows. Files are only read when a template's
+file globs already matched the name, so most of a tree is skipped without touching the
+disk. Then `prefilter` rules a template out with a plain substring search before any
+regex runs, which is why tripling the rule count cost about 20% rather than tripling the
+time.
 
 ## Development
 

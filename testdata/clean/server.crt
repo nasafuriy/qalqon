@@ -1,0 +1,4 @@
+-----BEGIN CERTIFICATE-----
+A certificate is public by design, so committing one is fine. This is the
+guard that private-key-committed keys off "PRIVATE KEY" and not off PEM.
+-----END CERTIFICATE-----

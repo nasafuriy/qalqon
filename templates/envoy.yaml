@@ -1,0 +1,82 @@
+# Envoy proxy rules.
+
+id: envoy-admin-interface-exposed
+info:
+  name: Envoy admin interface bound to every interface
+  severity: critical
+  description: >-
+    The admin interface has no authentication and exposes /quitquitquit,
+    /config_dump and the full stats tree. Bound to 0.0.0.0 it lets anyone who
+    can reach the port shut the proxy down or read its entire configuration,
+    secrets included.
+  remediation: >-
+    Bind the admin listener to 127.0.0.1, or to a unix domain socket, and
+    reach it through a sidecar.
+  reference:
+    - https://www.envoyproxy.io/docs/envoy/latest/operations/admin
+  tags: [envoy, proxy, exposure, admin]
+files:
+  - envoy.yaml
+  - envoy.yml
+  - envoy.json
+  - envoy-*.yaml
+  - envoy/*.yaml
+condition: and
+matchers:
+  - type: regex
+    context: true
+    patterns:
+      - '(?im)^\s*"?admin"?\s*:'
+  - type: regex
+    patterns:
+      - '(?im)^\s*"?address"?\s*:\s*"?(?:0\.0\.0\.0|::)\s*"?\s*$'
+
+---
+
+id: envoy-tls-verification-disabled
+info:
+  name: Envoy accepts untrusted upstream certificates
+  severity: high
+  description: >-
+    ACCEPT_UNTRUSTED tells Envoy to complete the handshake without checking
+    the chain, so the upstream leg is encrypted against an unknown party.
+    Envoy documents this as being for testing only.
+  remediation: >-
+    Configure a validation_context with a trusted_ca, and match the expected
+    SAN with match_typed_subject_alt_names.
+  reference:
+    - https://www.envoyproxy.io/docs/envoy/latest/api-v3/extensions/transport_sockets/tls/v3/common.proto
+  tags: [envoy, proxy, tls]
+files:
+  - envoy.yaml
+  - envoy.yml
+  - envoy.json
+  - envoy-*.yaml
+  - envoy/*.yaml
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*"?trust_chain_verification"?\s*:\s*"?ACCEPT_UNTRUSTED\b'
+
+---
+
+id: envoy-weak-tls-version
+info:
+  name: Envoy accepts obsolete TLS versions
+  severity: high
+  description: >-
+    tls_minimum_protocol_version set to TLSv1_0 or TLSv1_1 keeps protocol
+    versions available that carry known weaknesses and that current clients
+    already refuse.
+  remediation: 'Set tls_minimum_protocol_version: TLSv1_2 on the tls_params block.'
+  tags: [envoy, proxy, tls, crypto]
+files:
+  - envoy.yaml
+  - envoy.yml
+  - envoy.json
+  - envoy-*.yaml
+  - envoy/*.yaml
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*"?tls_minimum_protocol_version"?\s*:\s*"?TLSv1_[01]\b'

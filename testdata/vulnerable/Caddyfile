@@ -1,0 +1,12 @@
+{
+	auto_https off
+}
+
+example.com {
+	root * /srv/www
+	file_server browse
+
+	reverse_proxy https://app.internal:8443 {
+		tls_insecure_skip_verify
+	}
+}

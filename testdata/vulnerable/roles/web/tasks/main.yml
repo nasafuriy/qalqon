@@ -1,0 +1,8 @@
+- name: Install the release script
+  ansible.builtin.copy:
+    src: release.sh
+    dest: /usr/local/bin/release.sh
+    mode: "0666"
+
+- name: Restart the application
+  ansible.builtin.shell: systemctl restart app

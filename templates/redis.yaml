@@ -1,0 +1,101 @@
+# Redis configuration rules.
+#
+# Redis has no authentication by default and speaks a plaintext protocol that
+# is trivial to drive by hand. An exposed instance is one of the fastest ways
+# a host gets taken over, because CONFIG SET can write files as the redis user.
+
+id: redis-no-authentication
+info:
+  name: Redis accepts commands without a password
+  severity: critical
+  description: >-
+    With no requirepass and no ACL file, every client that reaches the port
+    gets full command access. CONFIG SET plus SAVE lets an attacker write
+    arbitrary files as the redis user, which is a well-worn path to an
+    authorized_keys entry or a cron job.
+  remediation: >-
+    Set requirepass to a long random value, or define users in an aclfile.
+    Keep the port on a private network regardless.
+  reference:
+    - https://redis.io/docs/latest/operate/oss_and_stack/management/security/
+  tags: [redis, database, auth, exposure]
+files:
+  - redis.conf
+  - redis-*.conf
+  - redis/*.conf
+condition: and
+matchers:
+  - type: regex
+    context: true
+    comment: confirm this really is a redis config before judging what is missing
+    patterns:
+      - '(?im)^\s*(?:port|bind|daemonize|maxmemory|appendonly)\s+\S+'
+  - type: absent
+    condition: all
+    patterns:
+      - '(?im)^\s*requirepass\s+\S+'
+      - '(?im)^\s*aclfile\s+\S+'
+      - '(?im)^\s*user\s+\S+'
+
+---
+
+id: redis-default-password
+info:
+  name: Redis uses a well-known default password
+  severity: high
+  description: >-
+    foobared is the placeholder from the shipped redis.conf, and it appears in
+    every credential list an attacker will try first. A password everybody
+    knows is not meaningfully different from no password.
+  remediation: Generate a long random value; Redis passwords are compared in constant time and can be arbitrarily long.
+  tags: [redis, database, auth, credential]
+files:
+  - redis.conf
+  - redis-*.conf
+  - redis/*.conf
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*requirepass\s+(?:foobared|password|redis|changeme|admin|123456)\s*$'
+
+---
+
+id: redis-protected-mode-disabled
+info:
+  name: Redis protected mode turned off
+  severity: high
+  description: >-
+    Protected mode is the safety net that refuses remote connections when no
+    password and no explicit bind are configured. Turning it off removes the
+    last thing standing between an unconfigured instance and the network.
+  remediation: Leave protected-mode yes, and configure bind and requirepass deliberately.
+  tags: [redis, database, exposure]
+files:
+  - redis.conf
+  - redis-*.conf
+  - redis/*.conf
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*protected-mode\s+no\s*$'
+
+---
+
+id: redis-bound-to-all-interfaces
+info:
+  name: Redis listening on every interface
+  severity: high
+  description: >-
+    bind 0.0.0.0 puts Redis on every address the host has, including public
+    ones. Combined with the absent-by-default authentication this is the exact
+    configuration that mass scanners look for.
+  remediation: Bind to 127.0.0.1, or to the specific private address the application uses.
+  tags: [redis, database, exposure, network]
+files:
+  - redis.conf
+  - redis-*.conf
+  - redis/*.conf
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*bind\s+(?:0\.0\.0\.0|\*)(?:\s|$)'

@@ -7,3 +7,7 @@ PermitEmptyPasswords yes
 X11Forwarding yes
 Ciphers aes128-cbc,3des-cbc
 MACs hmac-md5
+PermitUserEnvironment yes
+StrictModes no
+GatewayPorts yes
+AllowAgentForwarding yes

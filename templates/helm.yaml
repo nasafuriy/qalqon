@@ -1,0 +1,140 @@
+# Helm chart rules.
+#
+# Chart templates are Go-templated YAML, which a regex cannot read reliably.
+# These rules target the two files that are plain YAML and that operators
+# actually edit: values.yaml and Chart.yaml.
+
+id: helm-values-hardcoded-credential
+info:
+  name: Credential shipped as a chart default
+  severity: critical
+  description: >-
+    A password left in values.yaml is the value every installation gets unless
+    someone overrides it. Published charts with a default password are found
+    and used at scale, and the value is in the repository regardless.
+  remediation: >-
+    Default the key to an empty string and require an override, or point the
+    chart at an existing Secret with an existingSecret value.
+  reference:
+    - https://helm.sh/docs/chart_best_practices/values/
+  tags: [helm, kubernetes, secret, credential]
+files:
+  - values.yaml
+  - values.yml
+  - values-*.yaml
+  - values.*.yaml
+matchers:
+  - type: regex
+    comment: templated and empty defaults are correct; literals are not
+    patterns:
+      - '(?im)^\s*(?:password|passwd|rootPassword|adminPassword|secret|secretKey|apiKey|accessKey|privateKey|token)\s*:\s*"?[^\s${"''][^\s]{7,}'
+
+---
+
+id: helm-values-privileged-container
+info:
+  name: Chart defaults to a privileged container
+  severity: critical
+  description: >-
+    privileged true in values.yaml means every install of this chart gets a
+    container that can, for practical purposes, do anything root on the node
+    can do.
+  remediation: >-
+    Default privileged to false and let the small number of installations that
+    genuinely need it opt in.
+  reference:
+    - https://kubernetes.io/docs/concepts/security/pod-security-standards/
+  tags: [helm, kubernetes, privilege]
+files:
+  - values.yaml
+  - values.yml
+  - values-*.yaml
+  - values.*.yaml
+condition: and
+matchers:
+  - type: regex
+    context: true
+    patterns:
+      - '(?im)^\s*(?:securityContext|containerSecurityContext|podSecurityContext)\s*:'
+  - type: regex
+    patterns:
+      - '(?im)^\s*privileged\s*:\s*true\s*$'
+
+---
+
+id: helm-values-host-namespace
+info:
+  name: Chart defaults to sharing a host namespace
+  severity: high
+  description: >-
+    hostNetwork, hostPID or hostIPC on by default removes pod isolation for
+    every installation. With hostPID a container sees every process on the
+    node; with hostNetwork it binds directly onto node interfaces.
+  remediation: Default these to false; node agents that need them can override.
+  tags: [helm, kubernetes, isolation]
+files:
+  - values.yaml
+  - values.yml
+  - values-*.yaml
+  - values.*.yaml
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*host(?:Network|PID|IPC)\s*:\s*true\s*$'
+
+---
+
+id: helm-values-image-tag-latest
+info:
+  name: Chart image tag defaults to latest
+  severity: medium
+  description: >-
+    A chart whose default tag is latest installs a different build depending
+    on when it was run, and helm rollback cannot put back what was there
+    before, because the tag never identified a build.
+  remediation: Default tag to the chart's appVersion, and pin a digest for images you do not publish.
+  tags: [helm, kubernetes, supply-chain]
+files:
+  - values.yaml
+  - values.yml
+  - values-*.yaml
+  - values.*.yaml
+condition: and
+matchers:
+  - type: regex
+    context: true
+    comment: an image block, not some unrelated "tag" key
+    patterns:
+      - '(?im)^\s*repository\s*:\s*\S+'
+  - type: regex
+    patterns:
+      - '(?im)^\s*tag\s*:\s*["'']?latest["'']?\s*$'
+
+---
+
+id: helm-chart-dependency-unpinned
+info:
+  name: Chart dependency accepts any newer version
+  severity: medium
+  description: >-
+    A range such as ">=1.2.0" or "*" resolves to whatever the repository
+    serves at install time, so two installs of the same chart version can
+    deploy different dependency code.
+  remediation: >-
+    Pin an exact dependency version and update it deliberately. Commit
+    Chart.lock so installs are reproducible.
+  reference:
+    - https://helm.sh/docs/topics/charts/#chart-dependencies
+  tags: [helm, kubernetes, supply-chain]
+files:
+  - Chart.yaml
+  - Chart.yml
+condition: and
+matchers:
+  - type: regex
+    context: true
+    patterns:
+      - '(?im)^\s*dependencies\s*:'
+  - type: regex
+    patterns:
+      - '(?im)^\s*version\s*:\s*["'']?(?:[*x]|[><^~]|>=|\d+\.[x*])'

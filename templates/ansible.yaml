@@ -1,0 +1,184 @@
+# Ansible playbook and role rules.
+#
+# Playbooks are ordinary YAML, so the file globs alone prove nothing. Rules
+# that run over "*.yml" additionally require a play header — a hosts line is
+# the one key that only an Ansible play has. Rules about task detail are
+# scoped to role and task directories instead.
+
+id: ansible-host-key-checking-disabled
+info:
+  name: SSH host key checking disabled
+  severity: high
+  description: >-
+    With host key checking off, Ansible connects to whatever answers on that
+    address and hands over its credentials. That is precisely the check that
+    stops an attacker on the path from impersonating your servers.
+  remediation: >-
+    Leave host_key_checking at its default and distribute known_hosts, or
+    populate one with ssh-keyscan during provisioning.
+  reference:
+    - https://docs.ansible.com/ansible/latest/reference_appendices/config.html
+  tags: [ansible, ssh, hardening]
+files:
+  - ansible.cfg
+  - "*.ansible.cfg"
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*host_key_checking\s*=\s*(?:false|no|0)\s*$'
+
+---
+
+id: ansible-become-without-user
+info:
+  name: Play escalates to root for every task
+  severity: medium
+  description: >-
+    become at play level with no become_user runs every task in the play as
+    root, including the ones that only read a file. That widens the damage
+    from any single bad variable or module bug to the whole host.
+  remediation: >-
+    Set become on the individual tasks that need it, and name a become_user
+    narrower than root wherever the task allows it.
+  tags: [ansible, privilege, least-privilege]
+files:
+  - "*.yml"
+  - "*.yaml"
+condition: and
+matchers:
+  - type: regex
+    context: true
+    comment: hosts plus tasks is a play; neither appears in ordinary YAML
+    patterns:
+      - '(?im)^\s*-?\s*hosts\s*:\s*\S+'
+  - type: regex
+    context: true
+    patterns:
+      - '(?im)^\s*tasks\s*:'
+  - type: regex
+    patterns:
+      - '(?im)^\s*become\s*:\s*(?:true|yes)\s*$'
+  - type: absent
+    patterns:
+      - '(?im)^\s*become_user\s*:\s*\S+'
+
+---
+
+id: ansible-plaintext-credential
+info:
+  name: Credential written into a playbook
+  severity: critical
+  description: >-
+    A literal password in a play is committed to the repository and printed by
+    any task that dumps its own variables. Ansible ships Vault precisely so
+    this is never necessary.
+  remediation: >-
+    Encrypt the value with ansible-vault, or read it from a lookup against a
+    secret manager. Rotate anything already committed.
+  reference:
+    - https://docs.ansible.com/ansible/latest/vault_guide/index.html
+  tags: [ansible, secret, credential]
+files:
+  - "*.yml"
+  - "*.yaml"
+exclude:
+  - "*.example"
+  - "*.sample"
+condition: and
+matchers:
+  - type: regex
+    context: true
+    patterns:
+      - '(?im)^\s*-?\s*hosts\s*:\s*\S+'
+  - type: regex
+    comment: jinja braces and $ references are not literals
+    patterns:
+      - '(?im)^\s*(?:ansible_(?:password|ssh_pass|become_pass(?:word)?)|[a-z0-9_]*(?:password|passwd|secret|api_key|access_key)[a-z0-9_]*)\s*:\s*"?[^\s${"''][^\s]{7,}'
+
+---
+
+id: ansible-validate-certs-disabled
+info:
+  name: Certificate validation disabled on a module
+  severity: high
+  description: >-
+    validate_certs no tells get_url, uri and the package modules to accept any
+    certificate presented. These modules usually run as root on the managed
+    host, so a forged certificate becomes an attacker's payload installed as
+    root.
+  remediation: >-
+    Install the CA the endpoint uses on the managed host rather than turning
+    the check off.
+  tags: [ansible, tls, supply-chain]
+files:
+  - "*.yml"
+  - "*.yaml"
+  - roles/*/tasks/*.yml
+  - playbooks/*.yml
+  - tasks/*.yml
+condition: and
+matchers:
+  - type: regex
+    context: true
+    comment: validate_certs is Ansible-only, but pair it with a module that has it
+    patterns:
+      - '(?im)^\s*-?\s*(?:ansible\.builtin\.)?(?:get_url|uri|yum|dnf|apt|pip|git)\s*:'
+  - type: regex
+    patterns:
+      - '(?im)^\s*validate_certs\s*:\s*(?:false|no)\s*$'
+
+---
+
+id: ansible-world-writable-mode
+info:
+  name: File deployed world-writable
+  severity: high
+  description: >-
+    A mode whose last digit is 2, 3, 6 or 7 lets every account on the host
+    rewrite the file. For a script, a unit file, or anything root later runs,
+    that is a direct local privilege escalation.
+  remediation: Use 0644 for data, 0755 for executables, and 0600 for anything holding a secret.
+  tags: [ansible, permissions, privilege]
+files:
+  - roles/*/tasks/*.yml
+  - roles/*/tasks/*.yaml
+  - playbooks/*.yml
+  - tasks/*.yml
+  - site.yml
+condition: and
+matchers:
+  - type: regex
+    context: true
+    patterns:
+      - '(?im)^\s*-?\s*(?:ansible\.builtin\.)?(?:copy|template|file|unarchive)\s*:'
+  - type: regex
+    patterns:
+      - '(?im)^\s*mode\s*:\s*["'']?0?[0-7][0-7][2367]\b'
+
+---
+
+id: ansible-shell-without-changed-when
+info:
+  name: Raw shell task never reports idempotently
+  severity: low
+  description: >-
+    A shell or command task with no changed_when, creates or removes claims a
+    change on every run, so the playbook can never tell you whether anything
+    actually happened. It usually also means a purpose-built module was
+    available and went unused.
+  remediation: >-
+    Use the dedicated module where one exists. Otherwise add creates, removes
+    or changed_when so the task reports honestly.
+  tags: [ansible, reliability, idempotence]
+files:
+  - roles/*/tasks/*.yml
+  - roles/*/tasks/*.yaml
+  - tasks/*.yml
+condition: and
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*-?\s*(?:ansible\.builtin\.)?(?:shell|command)\s*:'
+  - type: absent
+    patterns:
+      - '(?im)^\s*(?:changed_when|creates|removes)\s*:'

@@ -1,0 +1,10 @@
+- hosts: web
+  become: true
+  vars:
+    db_password: supersecret-fixture-value
+  tasks:
+    - name: Fetch the installer
+      ansible.builtin.get_url:
+        url: https://releases.example.com/app.tar.gz
+        dest: /tmp/app.tar.gz
+        validate_certs: no

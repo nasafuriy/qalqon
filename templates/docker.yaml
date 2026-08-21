@@ -101,8 +101,114 @@ files:
   - "*.dockerfile"
 matchers:
   - type: regex
+    comment: >-
+      [^|\n] rather than [^|]: a negated class matches newlines, so a safe
+      curl on one RUN line would otherwise reach a pipe on a later line and
+      report a download-and-execute that is not there.
     patterns:
-      - '(?im)^\s*RUN\s+.*(?:curl|wget)[^|]*\|\s*(?:sudo\s+)?(?:ba|z|k)?sh\b'
+      - '(?im)^\s*RUN\s+.*(?:curl|wget)[^|\n]*\|\s*(?:sudo\s+)?(?:ba|z|k)?sh\b'
+
+---
+
+id: docker-chmod-world-writable
+info:
+  name: Build makes a path world-writable
+  severity: high
+  description: >-
+    chmod 777 lets every account inside the container rewrite the file. If the
+    image later drops to an unprivileged user, that user can still rewrite the
+    application it is about to run, which undoes the point of dropping.
+  remediation: >-
+    Set ownership with COPY --chown and use 0755 for executables, 0644 for
+    data. Reach for 777 only when you have established nothing else works.
+  tags: [docker, permissions, privilege]
+files:
+  - Dockerfile
+  - Dockerfile.*
+  - "*.dockerfile"
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*RUN\s[^\n]*\bchmod\s+(?:-[a-zA-Z]+\s+)*0?777\b'
+
+---
+
+id: docker-untagged-base-image
+info:
+  name: Base image has no tag at all
+  severity: medium
+  description: >-
+    FROM with no tag means :latest implicitly, so the build depends on
+    whatever the registry serves that minute. A build that worked yesterday
+    and fails today leaves you nothing to compare against.
+  remediation: Pin an explicit version tag, or a digest with FROM image@sha256:…
+  tags: [docker, supply-chain]
+files:
+  - Dockerfile
+  - Dockerfile.*
+  - "*.dockerfile"
+condition: and
+matchers:
+  - type: regex
+    comment: no colon and no @ means no tag and no digest
+    patterns:
+      - '(?im)^\s*FROM\s+[a-z0-9][a-z0-9._/-]*(?:\s+AS\s+[A-Za-z0-9_.-]+)?\s*$'
+  - type: absent
+    comment: >-
+      FROM scratch is correctly untagged. RE2 has no lookahead, so the rule
+      stands down on any Dockerfile that uses it rather than misreport it.
+    patterns:
+      - '(?im)^\s*FROM\s+scratch\b'
+
+---
+
+id: docker-pip-no-version-pin
+info:
+  name: Python packages installed without version pins
+  severity: low
+  description: >-
+    pip install with no version resolves against PyPI at build time, so the
+    image contents change without the Dockerfile changing. It also means a
+    newly published malicious release lands in the next build.
+  remediation: >-
+    Pin with package==1.2.3, or install from a requirements file with hashes
+    and --require-hashes.
+  tags: [docker, supply-chain, python]
+files:
+  - Dockerfile
+  - Dockerfile.*
+  - "*.dockerfile"
+prefilter: [pip]
+matchers:
+  - type: regex
+    comment: a requirements file or a constraint is fine; a bare name is not
+    patterns:
+      - '(?im)^\s*RUN\s[^\n]*\bpip3?\s+install\s+(?:--[a-z-]+\s+)*[A-Za-z][A-Za-z0-9._-]*(?:\s|$)'
+
+---
+
+id: docker-ssh-key-copied
+info:
+  name: SSH private key copied into the image
+  severity: critical
+  description: >-
+    A key added in any layer stays in that layer even if a later step deletes
+    it, so anyone who can pull the image can pull the key back out with
+    docker save.
+  remediation: >-
+    Use a BuildKit secret mount (RUN --mount=type=ssh) so the key is available
+    during the build and never written to a layer.
+  reference:
+    - https://docs.docker.com/build/building/secrets/
+  tags: [docker, secret, credential, key]
+files:
+  - Dockerfile
+  - Dockerfile.*
+  - "*.dockerfile"
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*(?:COPY|ADD)\s[^\n]*(?:id_rsa|id_dsa|id_ecdsa|id_ed25519|\.ssh/)'
 
 ---
 

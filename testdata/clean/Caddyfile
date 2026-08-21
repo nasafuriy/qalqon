@@ -1,0 +1,8 @@
+example.com {
+	root * /srv/www
+	file_server
+
+	reverse_proxy https://app.internal:8443 {
+		tls_trusted_ca_certs /etc/ssl/internal-ca.pem
+	}
+}

@@ -1,0 +1,163 @@
+# GitLab CI rules.
+#
+# The pipeline definition runs with whatever the runner can reach, so a
+# mistake here is a mistake in production's blast radius, not just in CI.
+
+id: gitlab-ci-hardcoded-credential
+info:
+  name: Credential written into the pipeline definition
+  severity: critical
+  description: >-
+    A literal secret under variables is readable by anyone with repository
+    access, is printed in job logs whenever the pipeline echoes its
+    environment, and is copied into every fork.
+  remediation: >-
+    Move the value into a masked, protected CI/CD variable in project settings
+    and reference it as $NAME, or fetch it from a secret manager at job time.
+  reference:
+    - https://docs.gitlab.com/ee/ci/variables/
+  tags: [gitlab, ci, secret, credential]
+files:
+  - .gitlab-ci.yml
+  - .gitlab-ci.yaml
+  - "*.gitlab-ci.yml"
+  - .gitlab/ci/*.yml
+matchers:
+  - type: regex
+    comment: values beginning with $ or { are references, not literals
+    patterns:
+      - '(?im)^\s*[A-Z0-9_]*(?:PASSWORD|PASSWD|SECRET|TOKEN|API_?KEY|ACCESS_?KEY)[A-Z0-9_]*\s*:\s*"?[^\s$"{][^\s]{7,}'
+
+---
+
+id: gitlab-ci-docker-tls-disabled
+info:
+  name: Docker-in-Docker TLS turned off
+  severity: medium
+  description: >-
+    An empty DOCKER_TLS_CERTDIR makes the build talk to the dind daemon over
+    plaintext TCP on 2375. Any other job sharing that network can drive the
+    daemon, and driving the daemon means root on the runner.
+  remediation: >-
+    Leave DOCKER_TLS_CERTDIR at its default of /certs and set
+    DOCKER_TLS_VERIFY, or use a socket-less builder such as buildah or kaniko.
+  reference:
+    - https://docs.gitlab.com/ee/ci/docker/using_docker_build.html
+  tags: [gitlab, ci, docker, tls]
+files:
+  - .gitlab-ci.yml
+  - .gitlab-ci.yaml
+  - "*.gitlab-ci.yml"
+  - .gitlab/ci/*.yml
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*DOCKER_TLS_CERTDIR\s*:\s*(?:""|''''|\s*$)'
+      - '(?im)^\s*DOCKER_HOST\s*:\s*["'']?tcp://[^\s"'']*:2375'
+
+---
+
+id: gitlab-ci-tls-verification-disabled
+info:
+  name: Certificate verification disabled in a job
+  severity: high
+  description: >-
+    GIT_SSL_NO_VERIFY, curl -k and similar switches turn off the check that
+    the host on the other end is who it claims to be. On a build runner that
+    means an attacker on the path can substitute the code you are about to
+    compile and ship.
+  remediation: >-
+    Install the CA certificate the runner needs instead of disabling the
+    check. If the endpoint is internal, add its CA to the image.
+  tags: [gitlab, ci, tls, supply-chain]
+files:
+  - .gitlab-ci.yml
+  - .gitlab-ci.yaml
+  - "*.gitlab-ci.yml"
+  - .gitlab/ci/*.yml
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*GIT_SSL_NO_VERIFY\s*:\s*["'']?(?:true|1)\b'
+      - '(?im)\bcurl\b[^\n|]*\s-{1,2}(?:k|insecure)\b'
+      - '(?im)\bwget\b[^\n|]*--no-check-certificate\b'
+
+---
+
+id: gitlab-ci-curl-pipe-shell
+info:
+  name: Job pipes a downloaded script straight into a shell
+  severity: high
+  description: >-
+    Piping a remote script into sh executes whatever the server returns at
+    that moment, with no pinned version and no chance to inspect it. Whoever
+    controls that URL, or the path to it, controls the build.
+  remediation: >-
+    Download to a file, verify a published checksum or signature, then run it.
+    Better still, install from a package manager with a pinned version.
+  tags: [gitlab, ci, supply-chain]
+files:
+  - .gitlab-ci.yml
+  - .gitlab-ci.yaml
+  - "*.gitlab-ci.yml"
+  - .gitlab/ci/*.yml
+prefilter: [curl, wget]
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)(?:curl|wget)\b[^\n]*\|\s*(?:sudo\s+)?(?:ba|z|k|da)?sh\b'
+
+---
+
+id: gitlab-ci-unpinned-remote-include
+info:
+  name: Remote pipeline include is not pinned
+  severity: medium
+  description: >-
+    An include without a ref resolves against the default branch every time
+    the pipeline runs, so a change in another project silently changes what
+    your pipeline executes.
+  remediation: >-
+    Pin the include with ref set to a tag or commit sha, and review it like
+    any other dependency.
+  reference:
+    - https://docs.gitlab.com/ee/ci/yaml/includes.html
+  tags: [gitlab, ci, supply-chain]
+files:
+  - .gitlab-ci.yml
+  - .gitlab-ci.yaml
+  - "*.gitlab-ci.yml"
+condition: and
+matchers:
+  - type: regex
+    context: true
+    patterns:
+      - '(?im)^\s*include\s*:'
+  - type: regex
+    patterns:
+      - '(?im)^\s*-?\s*remote\s*:\s*["'']?https?://'
+  - type: absent
+    patterns:
+      - '(?im)^\s*ref\s*:\s*\S+'
+
+---
+
+id: gitlab-ci-image-latest-tag
+info:
+  name: Job image pinned to :latest
+  severity: low
+  description: >-
+    With :latest the pipeline builds against whatever the registry serves that
+    minute. A build that passed yesterday and fails today gives you nothing to
+    bisect, and a compromised upstream tag lands silently.
+  remediation: Pin an explicit version tag, or a digest for images you do not control.
+  tags: [gitlab, ci, supply-chain]
+files:
+  - .gitlab-ci.yml
+  - .gitlab-ci.yaml
+  - "*.gitlab-ci.yml"
+  - .gitlab/ci/*.yml
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*-?\s*(?:image|name)\s*:\s*["'']?\S+:latest\b'

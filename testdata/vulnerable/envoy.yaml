@@ -1,0 +1,16 @@
+admin:
+  address:
+    socket_address:
+      address: 0.0.0.0
+      port_value: 9901
+
+static_resources:
+  clusters:
+    - name: app
+      transport_socket:
+        typed_config:
+          common_tls_context:
+            tls_params:
+              tls_minimum_protocol_version: TLSv1_0
+            validation_context:
+              trust_chain_verification: ACCEPT_UNTRUSTED

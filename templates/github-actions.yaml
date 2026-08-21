@@ -26,7 +26,7 @@ matchers:
       file would flag correct workflows. This does mean an expression buried
       inside a "run: |" block is not caught by this rule.
     patterns:
-      - '(?im)^\s*run:[^\n]*\$\{\{\s*github\.event\.[A-Za-z_.]*(?:title|body|message|ref|label|name|email|login|description)[^}]*\}\}'
+      - '(?im)^\s*run:[^\n]*\$\{\{\s*github\.event\.[A-Za-z_.]*(?:title|body|message|ref|label|name|email|login|description)[^}\n]*\}\}'
       - '(?im)^\s*run:[^\n]*\$\{\{\s*github\.head_ref\s*\}\}'
 
 ---
@@ -143,3 +143,102 @@ matchers:
   - type: regex
     patterns:
       - '(?im)^\s*(?:pull_request|pull_request_target|issue_comment)\s*:'
+
+---
+
+id: actions-workflow-run-untrusted-checkout
+info:
+  name: workflow_run job checks out the triggering branch
+  severity: critical
+  description: >-
+    workflow_run runs on the default branch with full secrets, whatever
+    triggered it. Checking out head_branch or head_sha pulls in the fork's
+    code and runs it in that privileged context — the same trap as
+    pull_request_target, one indirection further away.
+  remediation: >-
+    Download the artifact the first workflow produced instead of checking out
+    its source, and treat its contents as untrusted data.
+  reference:
+    - https://securitylab.github.com/resources/github-actions-preventing-pwn-requests/
+  tags: [github-actions, ci, supply-chain, privilege]
+files:
+  - .github/workflows/*.yml
+  - .github/workflows/*.yaml
+condition: and
+matchers:
+  - type: regex
+    context: true
+    patterns:
+      - '(?im)^\s*workflow_run\s*:'
+  - type: regex
+    patterns:
+      - '(?im)^\s*ref\s*:\s*\$\{\{\s*github\.event\.workflow_run\.head_(?:branch|sha)'
+
+---
+
+id: actions-secret-echoed
+info:
+  name: Workflow prints a secret to the log
+  severity: high
+  description: >-
+    Masking only replaces exact matches of the secret's value. Echoing it —
+    especially after base64, jq or any transformation — writes a readable copy
+    into the run log, which anyone with read access to the repository can
+    download.
+  remediation: >-
+    Pass the secret through env: and let the tool read it from the
+    environment. Never echo it, even while debugging.
+  tags: [github-actions, ci, secret]
+files:
+  - .github/workflows/*.yml
+  - .github/workflows/*.yaml
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^[^\n]*\b(?:echo|printf|cat)\b[^\n]*\$\{\{\s*secrets\.'
+
+---
+
+id: actions-curl-pipe-shell
+info:
+  name: Workflow pipes a downloaded script into a shell
+  severity: high
+  description: >-
+    The runner holds the job's secrets and, on a self-hosted runner, a
+    persistent machine. Piping a remote script into sh executes whatever that
+    URL serves at that moment, with nothing pinned and nothing verified.
+  remediation: >-
+    Download to a file, check a published checksum or signature, then run it.
+    Better still, use a pinned action or a package manager.
+  tags: [github-actions, ci, supply-chain]
+files:
+  - .github/workflows/*.yml
+  - .github/workflows/*.yaml
+prefilter: [curl, wget]
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^[^\n]*\b(?:curl|wget)\b[^\n|]*\|\s*(?:sudo\s+)?(?:ba|z|k|da)?sh\b'
+
+---
+
+id: actions-secrets-inherit
+info:
+  name: Reusable workflow called with every secret
+  severity: medium
+  description: >-
+    secrets: inherit passes the whole secret set to the called workflow,
+    including ones it has no use for. If that workflow lives in another
+    repository, the blast radius of a change there is every credential this
+    one holds.
+  remediation: Pass the specific secrets the called workflow needs, by name.
+  reference:
+    - https://docs.github.com/en/actions/using-workflows/reusing-workflows
+  tags: [github-actions, ci, secret, least-privilege]
+files:
+  - .github/workflows/*.yml
+  - .github/workflows/*.yaml
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*secrets\s*:\s*inherit\s*$'

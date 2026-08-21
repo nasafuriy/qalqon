@@ -90,3 +90,94 @@ matchers:
   - type: absent
     patterns:
       - '(?im)^\s*disable_functions\s*=[^\n]*\b(?:shell_exec|system|passthru)\b'
+
+---
+
+id: php-allow-url-fopen
+info:
+  name: Remote URLs accepted by the file functions
+  severity: medium
+  description: >-
+    With allow_url_fopen on, fopen, file_get_contents and copy will fetch
+    http:// and ftp:// URLs. Any one of them reached by user input becomes a
+    server-side request forgery, and the php:// wrappers stay available too.
+  remediation: >-
+    Set "allow_url_fopen = Off" and use cURL, which makes the outbound request
+    explicit and easier to restrict.
+  tags: [php, hardening, ssrf]
+files:
+  - php.ini
+  - php.ini.*
+  - "*.ini"
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*allow_url_fopen\s*=\s*(?:On|1|true|Yes)\s*$'
+
+---
+
+id: php-cgi-fix-pathinfo
+info:
+  name: cgi.fix_pathinfo left enabled
+  severity: high
+  description: >-
+    With fix_pathinfo on, PHP-FPM will happily execute a request for
+    /uploads/avatar.png/x.php by falling back to the nearest file that exists.
+    Paired with a permissive nginx location this turns any file upload into
+    remote code execution.
+  remediation: 'Set "cgi.fix_pathinfo = 0", and match only \.php$ in the web server location.'
+  reference:
+    - https://www.php.net/manual/en/security.cgi-bin.php
+  tags: [php, fpm, rce, hardening]
+files:
+  - php.ini
+  - php.ini.*
+  - "*.ini"
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*cgi\.fix_pathinfo\s*=\s*(?:1|On|true)\s*$'
+
+---
+
+id: php-session-cookie-not-httponly
+info:
+  name: Session cookie readable from JavaScript
+  severity: medium
+  description: >-
+    Without HttpOnly, any script that runs in the page can read the session
+    identifier out of document.cookie. That is what turns a contained
+    cross-site scripting bug into full account takeover.
+  remediation: 'Set "session.cookie_httponly = 1".'
+  reference:
+    - https://owasp.org/www-community/HttpOnly
+  tags: [php, session, headers, cookie]
+files:
+  - php.ini
+  - php.ini.*
+  - "*.ini"
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*session\.cookie_httponly\s*=\s*(?:0|Off|false|)\s*$'
+
+---
+
+id: php-session-cookie-not-secure
+info:
+  name: Session cookie sent over plain HTTP
+  severity: medium
+  description: >-
+    Without the Secure flag the browser will attach the session cookie to an
+    http:// request, so a single downgraded link on the same domain hands the
+    session to anyone watching the network.
+  remediation: 'Set "session.cookie_secure = 1" and serve the site over HTTPS only.'
+  tags: [php, session, cookie, tls]
+files:
+  - php.ini
+  - php.ini.*
+  - "*.ini"
+matchers:
+  - type: regex
+    patterns:
+      - '(?im)^\s*session\.cookie_secure\s*=\s*(?:0|Off|false|)\s*$'
