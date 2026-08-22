@@ -8,7 +8,8 @@ A single Go binary that scans a repository for insecure Docker, Compose, Kuberne
 Helm, Terraform, CloudFormation, Ansible, GitHub Actions, GitLab CI, nginx, Apache,
 Caddy, Traefik, HAProxy, Envoy, sshd, systemd, PHP, PostgreSQL, MySQL, MongoDB and
 Redis configuration — and for credentials that should never have been committed. It can
-also check the security headers and TLS posture of hosts you run.
+also check the security headers and TLS posture of hosts you run, and look up the
+versions in your dependency manifests against the public vulnerability database.
 
 [![Go Reference](https://img.shields.io/badge/go-1.22%2B-00ADD8.svg)](https://go.dev)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -123,6 +124,47 @@ key_bits: 256
 
 When the certificate fails verification the probe retries without it, so a broken chain
 is reported rather than turning into a connection error you have to debug by hand.
+
+## Checking dependencies
+
+Configuration is only half of it. Most of the vulnerabilities a project actually ships
+arrive through its dependencies, so `qalqon deps` reads the manifests and asks
+[osv.dev](https://osv.dev) what is known about the versions it finds:
+
+```console
+$ qalqon deps .
+qalqon · 6 dependencies · 3 manifests in 4.2s
+
+go.mod
+  6         high     CVE-2022-32149 Denial of service via crafted Accept-Language header
+             golang.org/x/text@0.3.0
+             → Upgrade golang.org/x/text to 0.3.8 or later.
+
+60 findings   7 critical · 22 high · 24 medium · 5 low · 2 info
+```
+
+| Manifest | Ecosystem |
+|---|---|
+| `go.mod` | Go |
+| `package-lock.json` | npm (lockfile v1, v2 and v3) |
+| `requirements.txt` | PyPI, `==` pins only |
+| `Cargo.lock` | crates.io |
+| `composer.lock` | Packagist |
+
+Three things are worth knowing about how it reports:
+
+- **One flaw, one line.** An issue usually has two records — the ecosystem advisory
+  (`GHSA-…`) and the language's own database (`GO-…`, `PYSEC-…`). They alias to the same
+  CVE, so they are merged, keeping whichever half carries a severity.
+- **One severity scale.** Where a CVSS vector exists the base score is calculated rather
+  than the label trusted, so "moderate" from one database and "medium" from another do
+  not sort differently.
+- **`-list` needs no network.** It prints what the manifests declare and stops, which is
+  also how this repository tests the parsers without depending on someone else's uptime.
+
+This is the one command that makes a network request. Scanning configuration stays
+entirely offline, because it can; a vulnerability database cannot, since the answer
+changes daily and no useful copy of it fits in a binary.
 
 ## In CI
 

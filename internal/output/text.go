@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/nasafuriy/qalqon/internal/engine"
@@ -81,6 +82,9 @@ type TextOptions struct {
 	Version string
 	// Unit names what was examined, for the header line. Defaults to "files".
 	Unit string
+	// Rules names what did the examining. Defaults to "templates"; a
+	// dependency scan checks versions against advisories instead.
+	Rules string
 }
 
 // Text writes the report a person reads in a terminal or CI log.
@@ -95,10 +99,16 @@ func Text(w io.Writer, findings []engine.Finding, stats engine.Stats, opts TextO
 		unit = strings.TrimSuffix(unit, "s")
 	}
 
+	rules := opts.Rules
+	if rules == "" {
+		rules = "templates"
+	}
+
 	if !opts.Quiet {
-		fmt.Fprintf(w, "%sqalqon%s %s· %d templates · %s %s in %s%s\n\n",
+		fmt.Fprintf(w, "%sqalqon%s %s· %d %s · %s %s in %s%s\n\n",
 			p.bold, p.reset, p.dim,
-			stats.TemplatesRun, thousands(stats.FilesWalked), unit, roundDuration(stats), p.reset)
+			stats.TemplatesRun, rules,
+			thousands(stats.FilesWalked), unit, roundDuration(stats), p.reset)
 	}
 
 	if len(findings) == 0 {
@@ -148,8 +158,11 @@ func Text(w io.Writer, findings []engine.Finding, stats engine.Stats, opts TextO
 			switch {
 			case f.Part != "":
 				where = f.Part
-			case f.Line > 0:
+			case f.Line > 0 && f.Column > 0:
 				where = fmt.Sprintf("%d:%d", f.Line, f.Column)
+			case f.Line > 0:
+				// A dependency is pinned to a line, not to a column.
+				where = strconv.Itoa(f.Line)
 			}
 			fmt.Fprintf(w, "  %s%-9s%s %s%-8s%s %s%-*s%s %s\n",
 				p.dim, where, p.reset,

@@ -100,6 +100,17 @@ jobs:
       - name: Templates all load
         run: ./qalqon templates
 
+      # -list reads the manifests without contacting osv.dev, so this stays a
+      # hermetic check: it proves the parsers and the command wiring work
+      # without making the build depend on someone else's uptime.
+      - name: Dependency manifests parse
+        run: |
+          ./qalqon deps . -list
+          if ! ./qalqon deps . -list | grep -q 'gopkg.in/yaml.v3'; then
+            echo "::error::deps -list did not report the module's own requirement"
+            exit 1
+          fi
+
   dogfood:
     name: Scan this repository
     runs-on: ubuntu-latest

@@ -18,8 +18,10 @@ import (
 	"sort"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/nasafuriy/qalqon"
+	"github.com/nasafuriy/qalqon/internal/deps"
 	"github.com/nasafuriy/qalqon/internal/engine"
 	"github.com/nasafuriy/qalqon/internal/output"
 	"github.com/nasafuriy/qalqon/internal/probe"
@@ -63,6 +65,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return scan(rest, stdout, stderr)
 	case "target":
 		return scanTargets(rest, stdout, stderr)
+	case "deps":
+		return scanDeps(rest, stdout, stderr)
 	default:
 		// Allow "qalqon ." as shorthand for "qalqon scan .".
 		if strings.HasPrefix(command, "-") || fileish(command) {
@@ -225,6 +229,261 @@ func scan(args []string, stdout, stderr io.Writer) int {
 	return exitOK
 }
 
+// discoverTargets turns a list of hosts into a list of URLs to probe, by
+// finding which ports are actually listening.
+//
+// It runs before the templates do, and prints what it found, because the
+// answer is worth seeing on its own: a port nobody remembered leaving open
+// is a finding even when the service on it turns out to be fine.
+func discoverTargets(hosts []string, spec string, timeout time.Duration,
+	stdout, stderr io.Writer, quiet bool) ([]string, error) {
+
+	ports, err := probe.ParsePorts(spec)
+	if err != nil {
+		return nil, err
+	}
+
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
+	var out []string
+	for _, host := range hosts {
+		open, err := probe.Discover(ctx, host, probe.DiscoverOptions{
+			Ports:   ports,
+			Timeout: timeout,
+		})
+		if err != nil && len(open) == 0 {
+			return nil, err
+		}
+
+		if !quiet {
+			label := host
+			if len(ports) > 0 {
+				label = fmt.Sprintf("%s (%d ports)", host, len(ports))
+			} else {
+				label = fmt.Sprintf("%s (%d common ports)", host, len(probe.DefaultPorts))
+			}
+			fmt.Fprintf(stdout, "%s → %d listening\n", label, len(open))
+			for _, p := range open {
+				scheme := "http"
+				if p.TLS {
+					scheme = "https"
+				}
+				fmt.Fprintf(stdout, "  %-6d %s\n", p.Port, scheme)
+			}
+			fmt.Fprintln(stdout)
+		}
+
+		for _, p := range open {
+			out = append(out, p.URL(host))
+		}
+	}
+	return out, nil
+}
+
+/* ------------------------------------------------------------ dependencies */
+
+// scanDeps reads the dependency manifests under a path and asks OSV what is
+// known about the versions it finds.
+//
+// This is the only command that needs the network. Configuration scanning
+// stays offline on purpose; a vulnerability database cannot, because the
+// answer changes daily and no useful copy of it fits in a binary. That is
+// why it is a separate command rather than part of scan: nothing you run
+// today should suddenly start making requests.
+func scanDeps(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("deps", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+
+	timeout := fs.Duration("timeout", 60*time.Second, "give up on the database after this long")
+	listOnly := fs.Bool("list", false, "list the dependencies found and stop, without querying")
+	failOn := fs.String("fail-on", "low", "exit 1 when a finding at this severity or above is reported (none disables)")
+	directOnly := fs.Bool("direct", false, "only report on dependencies this project declares itself")
+
+	asJSON := fs.Bool("json", false, "write a JSON report")
+	asJSONL := fs.Bool("jsonl", false, "write one JSON finding per line")
+	asSARIF := fs.Bool("sarif", false, "write SARIF 2.1.0")
+	outPath := fs.String("o", "", "write to this file instead of stdout")
+	quiet := fs.Bool("quiet", false, "findings only")
+	stats := fs.Bool("stats", false, "print throughput")
+	forceColor := fs.Bool("color", false, "force ANSI colour")
+	noColor := fs.Bool("no-color", false, "disable ANSI colour")
+
+	if err := fs.Parse(reorder(fs, args)); err != nil {
+		return exitError
+	}
+
+	root := "."
+	if fs.NArg() > 0 {
+		root = fs.Arg(0)
+	}
+	if _, err := os.Stat(root); err != nil {
+		fmt.Fprintf(stderr, "qalqon: %v\n", err)
+		return exitError
+	}
+
+	started := time.Now()
+	found, errs := deps.Collect(root)
+	for _, err := range errs {
+		fmt.Fprintf(stderr, "qalqon: %v\n", err)
+	}
+
+	if len(found) == 0 {
+		if !*quiet {
+			fmt.Fprintf(stdout, "qalqon · no dependency manifests found under %s\n", root)
+			fmt.Fprintf(stdout, "  looked for: go.mod, package-lock.json, requirements.txt, Cargo.lock, composer.lock\n")
+		}
+		return exitOK
+	}
+
+	if *directOnly {
+		kept := found[:0]
+		for _, d := range found {
+			if d.Direct {
+				kept = append(kept, d)
+			}
+		}
+		found = kept
+	}
+
+	if *listOnly {
+		for _, d := range found {
+			kind := "indirect"
+			if d.Direct {
+				kind = "direct"
+			}
+			fmt.Fprintf(stdout, "%-12s %-10s %s\n", d.Ecosystem, kind, d)
+		}
+		fmt.Fprintf(stdout, "\n%d dependencies\n", len(found))
+		return exitOK
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
+	defer cancel()
+
+	vulns, err := deps.NewClient(*timeout).Query(ctx, found)
+	if err != nil {
+		fmt.Fprintf(stderr, "qalqon: querying osv.dev: %v\n", err)
+		fmt.Fprintf(stderr, "  this command needs network access; use -list to see the dependencies offline\n")
+		return exitError
+	}
+
+	findings := dependencyFindings(vulns)
+
+	manifests := map[string]bool{}
+	for _, d := range found {
+		manifests[d.File] = true
+	}
+	runStats := engine.Stats{
+		FilesWalked:  int64(len(manifests)),
+		FilesRead:    int64(len(manifests)),
+		TemplatesRun: len(found),
+		Duration:     time.Since(started),
+	}
+
+	sink := stdout
+	if *outPath != "" {
+		f, err := os.Create(*outPath)
+		if err != nil {
+			fmt.Fprintf(stderr, "qalqon: %v\n", err)
+			return exitError
+		}
+		defer f.Close()
+		sink = f
+	}
+
+	switch {
+	case *asSARIF:
+		err = output.SARIF(sink, findings, version)
+	case *asJSONL:
+		err = output.JSONL(sink, findings)
+	case *asJSON:
+		err = output.JSON(sink, findings, runStats, root, version)
+	default:
+		err = output.Text(sink, findings, runStats, output.TextOptions{
+			Color:   *outPath == "" && output.ColorEnabled(*forceColor, *noColor),
+			Quiet:   *quiet,
+			Stats:   *stats,
+			Version: version,
+			Unit:    "manifests",
+			Rules:   "dependencies",
+		})
+	}
+	if err != nil {
+		fmt.Fprintf(stderr, "qalqon: %v\n", err)
+		return exitError
+	}
+
+	if strings.EqualFold(*failOn, "none") || len(findings) == 0 {
+		return exitOK
+	}
+	threshold, err := template.ParseSeverity(*failOn)
+	if err != nil {
+		fmt.Fprintf(stderr, "qalqon: %v\n", err)
+		return exitError
+	}
+	if output.Highest(findings).Rank() >= threshold.Rank() {
+		return exitFindings
+	}
+	return exitOK
+}
+
+// dependencyFindings turns advisories into the same Finding the rest of the
+// tool reports, so every output format keeps working unchanged.
+func dependencyFindings(vulns []deps.Vulnerability) []engine.Finding {
+	out := make([]engine.Finding, 0, len(vulns))
+	for _, v := range vulns {
+		severity, err := template.ParseSeverity(v.Severity)
+		if err != nil {
+			// An advisory with no score still deserves to be seen.
+			severity = template.SeverityInfo
+		}
+
+		name := v.Summary
+		if name == "" {
+			name = "Known vulnerability in " + v.Dep.Name
+		}
+
+		remediation := "No fixed version is published yet. Check whether the advisory lists a workaround, or whether the package is still needed."
+		if len(v.FixedIn) > 0 {
+			remediation = fmt.Sprintf("Upgrade %s to %s or later.",
+				v.Dep.Name, v.FixedIn[0])
+		}
+
+		tags := []string{"dependency", "cve", strings.ToLower(v.Dep.Ecosystem)}
+		if !v.Dep.Direct {
+			tags = append(tags, "transitive")
+		}
+
+		out = append(out, engine.Finding{
+			TemplateID:  v.CVE(),
+			Name:        name,
+			Severity:    severity,
+			Description: strings.TrimSpace(firstParagraph(v.Details)),
+			Remediation: remediation,
+			Reference:   []string{"https://osv.dev/vulnerability/" + v.ID},
+			Tags:        tags,
+			File:        v.Dep.File,
+			Line:        v.Dep.Line,
+			Match:       v.Dep.String(),
+		})
+	}
+	return out
+}
+
+// firstParagraph keeps a report readable. OSV details run to several
+// paragraphs of markdown; the opening one carries the point.
+func firstParagraph(s string) string {
+	s = strings.TrimSpace(s)
+	if i := strings.Index(s, "\n\n"); i > 0 {
+		s = s[:i]
+	}
+	if len(s) > 400 {
+		s = strings.TrimSpace(s[:400]) + "…"
+	}
+	return strings.ReplaceAll(s, "\n", " ")
+}
+
 /* ---------------------------------------------------------------- targets */
 
 func scanTargets(args []string, stdout, stderr io.Writer) int {
@@ -243,6 +502,8 @@ func scanTargets(args []string, stdout, stderr io.Writer) int {
 	fs.Var(&ids, "id", "only run these template ids")
 
 	listFile := fs.String("l", "", "read targets from a file, one per line")
+	discover := fs.Bool("discover", false, "find the listening ports on each host first")
+	portSpec := fs.String("ports", "", "ports to try with -discover, e.g. 80,443,8000-8100")
 	timeout := fs.Duration("timeout", probe.DefaultTimeout, "per-target timeout")
 	concurrency := fs.Int("c", 4, "targets probed in parallel (capped at 10)")
 	userAgent := fs.String("ua", "", "override the User-Agent header")
@@ -278,6 +539,21 @@ func scanTargets(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "usage: qalqon target <url>... [-l targets.txt]")
 		fmt.Fprintln(stderr, "\nProbe only hosts you run or are authorised to test.")
 		return exitError
+	}
+
+	if *discover {
+		found, err := discoverTargets(targets, *portSpec, *timeout, stdout, stderr, *quiet)
+		if err != nil {
+			fmt.Fprintf(stderr, "qalqon: %v\n", err)
+			return exitError
+		}
+		if len(found) == 0 {
+			if !*quiet {
+				fmt.Fprintln(stdout, "No listening ports found.")
+			}
+			return exitOK
+		}
+		targets = found
 	}
 
 	set, code := loadTemplates(dirs, *noBuiltin, stderr)
@@ -559,20 +835,33 @@ USAGE
   qalqon <path>                    scan a directory or file
   qalqon scan <path> [flags]
   qalqon target <url>... [flags]   check hosts you run: headers, cookies, TLS
+  qalqon deps <path> [flags]       check dependency versions against osv.dev
   qalqon templates [flags]         list the templates that would run
   qalqon validate <dir>            check your own templates parse
   qalqon version
 
+DEPS FLAGS
+  -list             list what was found and stop, without querying
+  -direct           only what this project declares itself, not the whole tree
+  -timeout D        give up on the database after this long (default 60s)
+
+  Reads go.mod, package-lock.json, requirements.txt, Cargo.lock and
+  composer.lock. This is the only command that uses the network: scanning
+  configuration stays offline, because a vulnerability database cannot.
+
 TARGET FLAGS
   -l FILE           read targets from a file, one per line
+  -discover         find the listening ports on each host first
+  -ports SPEC       ports to try with -discover, e.g. 80,443,8000-8100
   -timeout D        per-target timeout (default 10s)
   -c N              targets in parallel, capped at 10
   -ua STRING        override the User-Agent
   -max-body N       bytes of response body to read
 
   Each target gets one ordinary GET — no path guessing, no payloads, no
-  authentication attempts. Probe only hosts you operate or are authorised
-  to test.
+  authentication attempts. -discover opens a TCP connection per port and
+  nothing more, and defaults to a short list of ports where web services
+  actually live. Probe only hosts you operate or are authorised to test.
 
 SCAN FLAGS
   -t DIR            extra template directory (repeatable)
@@ -602,6 +891,8 @@ EXIT CODES
 
 EXAMPLES
   qalqon .
+  qalqon deps .
+  qalqon deps . -direct -fail-on high
   qalqon scan . -severity high,critical
   qalqon scan . -tags docker -stats
   qalqon scan . -sarif -o results.sarif
