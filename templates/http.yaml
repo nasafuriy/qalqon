@@ -135,7 +135,7 @@ info:
 matchers:
   - part: header
     patterns:
-      - '(?im)^server:\s*\S+/\d'
+      - '(?im)^server:\s*\S+/[\w.\-]+'
 
 ---
 
@@ -153,7 +153,7 @@ info:
 matchers:
   - part: header
     patterns:
-      - '(?im)^x-powered-by:'
+      - '(?im)^x-powered-by:.*\S'
 
 ---
 
@@ -222,6 +222,33 @@ matchers:
   - part: header
     patterns:
       - '(?im)^access-control-allow-origin:\s*\*'
+
+---
+
+id: http-cors-credentials
+type: http
+info:
+  name: CORS is configured to send credentials
+  severity: high
+  description: >-
+    Access-Control-Allow-Credentials tells the browser to attach cookies and
+    authorization headers to cross-origin requests, so whichever origin the
+    response allows can act as the logged-in user. A browser refuses this
+    combination with a literal "*", but a server that sends the header at all
+    is usually reflecting the request's Origin somewhere, and a reflected
+    origin with credentials is account takeover from any site the user visits.
+  remediation: >-
+    Allow one origin from a list you control, never the request's own Origin,
+    and add "Vary: Origin". Drop the credentials header entirely unless the
+    API genuinely needs the session.
+  reference:
+    - https://developer.mozilla.org/docs/Web/HTTP/Headers/Access-Control-Allow-Credentials
+    - https://portswigger.net/web-security/cors
+  tags: [http, headers, cors, auth]
+matchers:
+  - part: header
+    patterns:
+      - '(?im)^access-control-allow-credentials:\s*true'
 
 ---
 

@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/nasafuriy/qalqon/internal/engine"
@@ -242,6 +243,68 @@ func TestFileTemplatesDoNotRunAgainstTargets(t *testing.T) {
 	for _, tpl := range http.Templates {
 		if len(tpl.Files) != 0 {
 			t.Errorf("%s is an http template but declares file globs", tpl.ID)
+		}
+	}
+}
+
+// The dangerous half of a CORS misconfiguration is the credentials header:
+// whichever origin the response allows can then act as the logged-in user.
+func TestTargetCORSWithCredentials(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("Access-Control-Allow-Origin", "*")
+		h.Set("Access-Control-Allow-Credentials", "true")
+		w.Write([]byte("{}"))
+	}))
+	defer srv.Close()
+
+	mustFind(t, ids(probeServer(t, srv)),
+		"http-cors-credentials",
+		"http-cors-wildcard",
+	)
+}
+
+// A server that allows an origin but sends no credentials is a normal public
+// API, and must not raise the credentials finding.
+func TestTargetCORSWithoutCredentialsIsNotFlagged(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Write([]byte("{}"))
+	}))
+	defer srv.Close()
+
+	if ids(probeServer(t, srv))["http-cors-credentials"] {
+		t.Fatal("http-cors-credentials fired without the credentials header")
+	}
+}
+
+// The reported match is what a person reads to decide whether the finding is
+// real, so it has to carry the whole version rather than stopping at the
+// first digit.
+func TestDisclosureFindingsCarryTheWholeValue(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Server", "nginx/1.10.3")
+		w.Header().Set("X-Powered-By", "Express/4.16.0")
+		w.Write([]byte("ok"))
+	}))
+	defer srv.Close()
+
+	want := map[string]string{
+		"http-server-version-disclosed": "nginx/1.10.3",
+		"http-powered-by-disclosed":     "Express/4.16.0",
+	}
+	seen := map[string]bool{}
+	for _, f := range probeServer(t, srv) {
+		if suffix, ok := want[f.TemplateID]; ok {
+			seen[f.TemplateID] = true
+			if !strings.Contains(f.Match, suffix) {
+				t.Errorf("%s: match %q does not contain %q", f.TemplateID, f.Match, suffix)
+			}
+		}
+	}
+	for id := range want {
+		if !seen[id] {
+			t.Errorf("%s did not fire", id)
 		}
 	}
 }
