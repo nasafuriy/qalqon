@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"sort"
@@ -30,6 +31,11 @@ type Options struct {
 	MaxBody      int64
 	UserAgent    string
 	MaxRedirects int
+	// CheckTLSVersions asks the host which protocol versions it accepts,
+	// with one extra handshake per version. A connection only reports the
+	// version both sides agreed on, which is the best available rather than
+	// the worst the server would allow.
+	CheckTLSVersions bool
 }
 
 // Defaults used when Options leaves a field empty.
@@ -130,6 +136,15 @@ func do(ctx context.Context, target *url.URL, opts Options, skipVerify bool) (*R
 			// Reporting the weak version is the entire point, so reach down
 			// far enough to observe it.
 			MinVersion: tls.VersionTLS10, //nolint:gosec // scanner: must reach the servers it reports on
+			// Same reasoning one level down. Go has been dropping the old
+			// suites from what a client offers — RSA key exchange, 3DES, RC4 —
+			// so a server that speaks nothing else answers with "handshake
+			// failure" and the report says the target was unreachable instead
+			// of saying it has no forward secrecy. The secure suites are first
+			// in this list, so a server that honours client preference still
+			// gets the good one; the weak ones are only reachable when there
+			// is nothing better, which is the case worth reporting.
+			CipherSuites: legacyCipherSuites(),
 		},
 		DisableCompression:  false,
 		MaxIdleConnsPerHost: 1,
@@ -174,6 +189,18 @@ func do(ctx context.Context, target *url.URL, opts Options, skipVerify bool) (*R
 			template.PartTLS:    renderTLS(resp.TLS, resp.Request.URL.Hostname()),
 		},
 	}
+
+	if opts.CheckTLSVersions && resp.TLS != nil {
+		host := resp.Request.URL.Hostname()
+		port := resp.Request.URL.Port()
+		if port == "" {
+			port = "443"
+		}
+		sweep := CheckVersions(ctx, net.JoinHostPort(host, port), host, opts.Timeout)
+		result.Parts[template.PartTLS] = append(
+			result.Parts[template.PartTLS], []byte(sweep.Render())...)
+	}
+
 	return result, nil
 }
 
@@ -208,6 +235,10 @@ func renderTLS(state *tls.ConnectionState, hostname string) []byte {
 	fmt.Fprintf(&b, "tls: yes\nencrypted: true\n")
 	fmt.Fprintf(&b, "version: %s\n", tlsVersion(state.Version))
 	fmt.Fprintf(&b, "cipher: %s\n", tls.CipherSuiteName(state.CipherSuite))
+	// Without forward secrecy, traffic captured today can be read later by
+	// whoever eventually gets the server's private key.
+	fmt.Fprintf(&b, "forward_secrecy: %t\n", forwardSecrecy(state.Version, state.CipherSuite))
+	fmt.Fprintf(&b, "chain_length: %d\n", len(state.PeerCertificates))
 
 	if len(state.PeerCertificates) == 0 {
 		return []byte(b.String())
@@ -221,6 +252,11 @@ func renderTLS(state *tls.ConnectionState, hostname string) []byte {
 	fmt.Fprintf(&b, "san: %s\n", strings.Join(leaf.DNSNames, ", "))
 	fmt.Fprintf(&b, "signature_algorithm: %s\n", leaf.SignatureAlgorithm)
 	fmt.Fprintf(&b, "key_bits: %d\n", keyBits(leaf))
+
+	// A public certificate may not be issued for longer than 398 days, and a
+	// very long life usually means it was made by hand and will be forgotten.
+	lifetime := int(leaf.NotAfter.Sub(leaf.NotBefore).Hours() / 24)
+	fmt.Fprintf(&b, "validity_days: %d\n", lifetime)
 
 	days := int(time.Until(leaf.NotAfter).Hours() / 24)
 	fmt.Fprintf(&b, "days_remaining: %d\n", days)

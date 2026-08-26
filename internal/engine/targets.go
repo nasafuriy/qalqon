@@ -20,6 +20,9 @@ type TargetOptions struct {
 	Timeout     time.Duration
 	MaxBody     int64
 	UserAgent   string
+	// CheckTLSVersions asks each https host which protocol versions it
+	// accepts, rather than only recording the one it negotiated.
+	CheckTLSVersions bool
 }
 
 // MaxTargetConcurrency bounds parallel requests regardless of what is asked for.
@@ -62,9 +65,10 @@ func RunTargets(ctx context.Context, set *template.Set, targets []string, opts T
 			defer wg.Done()
 			for target := range queue {
 				result, err := probe.Fetch(ctx, target, probe.Options{
-					Timeout:   opts.Timeout,
-					MaxBody:   opts.MaxBody,
-					UserAgent: opts.UserAgent,
+					Timeout:          opts.Timeout,
+					MaxBody:          opts.MaxBody,
+					UserAgent:        opts.UserAgent,
+					CheckTLSVersions: opts.CheckTLSVersions,
 				})
 				if err != nil {
 					mu.Lock()

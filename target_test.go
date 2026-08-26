@@ -308,3 +308,139 @@ func TestDisclosureFindingsCarryTheWholeValue(t *testing.T) {
 		}
 	}
 }
+
+// probeServerSweeping is probeServer with the version sweep turned on, which
+// is what the new tls-accepts-obsolete-protocol rule reads.
+func probeServerSweeping(t *testing.T, srv *httptest.Server) []engine.Finding {
+	t.Helper()
+	set := builtin(t).OfKind(template.KindHTTP)
+
+	findings, failures, _, err := engine.RunTargets(
+		context.Background(), set, []string{srv.URL},
+		engine.TargetOptions{CheckTLSVersions: true})
+	if err != nil {
+		t.Fatalf("target run failed: %v", err)
+	}
+	for _, f := range failures {
+		t.Fatalf("%s could not be probed: %s", f.Target, f.Err)
+	}
+	return findings
+}
+
+// The gap the sweep exists to close: this server prefers TLS 1.3, so the one
+// connection a probe makes reports a modern version and tls-obsolete-protocol
+// stays quiet — while the server would happily accept TLS 1.0 from anyone who
+// asks for it.
+func TestSweepFindsObsoleteVersionTheHandshakeHid(t *testing.T) {
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("ok"))
+	}))
+	srv.TLS = &tls.Config{ //nolint:gosec // a permissive server is the fixture
+		MinVersion:   tls.VersionTLS10,
+		MaxVersion:   tls.VersionTLS13,
+		CipherSuites: legacySuites(),
+	}
+	srv.StartTLS()
+	defer srv.Close()
+
+	plain := ids(probeServer(t, srv))
+	swept := ids(probeServerSweeping(t, srv))
+
+	if plain["tls-obsolete-protocol"] {
+		t.Skip("this runtime negotiated an obsolete version by default; nothing was hidden")
+	}
+	if !swept["tls-accepts-obsolete-protocol"] {
+		t.Error("the sweep did not report a server that accepts TLS 1.0")
+	}
+}
+
+// A modern-only server must stay clean, or the rule is worthless in CI.
+func TestSweepIsQuietOnAModernServer(t *testing.T) {
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("ok"))
+	}))
+	srv.TLS = &tls.Config{MinVersion: tls.VersionTLS12}
+	srv.StartTLS()
+	defer srv.Close()
+
+	got := ids(probeServerSweeping(t, srv))
+
+	mustNotFind(t, got,
+		"tls-accepts-obsolete-protocol",
+		"tls-obsolete-protocol",
+		"tls-no-forward-secrecy",
+		"tls-weak-cipher-suite",
+	)
+}
+
+// Without an ephemeral key exchange, traffic captured today is readable by
+// whoever eventually obtains the server's key.
+func TestStaticRSAKeyExchangeIsReported(t *testing.T) {
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("ok"))
+	}))
+	srv.TLS = &tls.Config{
+		MinVersion:   tls.VersionTLS12,
+		MaxVersion:   tls.VersionTLS12, // TLS 1.3 has no suite without forward secrecy
+		CipherSuites: []uint16{tls.TLS_RSA_WITH_AES_128_GCM_SHA256},
+	}
+	srv.StartTLS()
+	defer srv.Close()
+
+	got := ids(probeServer(t, srv))
+	mustFind(t, got, "tls-no-forward-secrecy")
+}
+
+// legacySuites offers everything the runtime can still speak, so a handshake
+// pinned to an old version fails because the server refused it rather than
+// because no suite was on offer.
+func legacySuites() []uint16 {
+	var out []uint16
+	for _, s := range tls.CipherSuites() {
+		out = append(out, s.ID)
+	}
+	for _, s := range tls.InsecureCipherSuites() { //nolint:gosec // reaching old servers on purpose
+		out = append(out, s.ID)
+	}
+	return out
+}
+
+// RC4 and 3DES both have published practical attacks. A server offering
+// nothing else is exactly what the client-side suite list exists to reach:
+// without it the handshake fails and the report says "unreachable".
+func TestWeakCipherSuiteIsReported(t *testing.T) {
+	cases := []struct {
+		name  string
+		suite uint16
+	}{
+		{"3des", tls.TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA},
+		{"rc4", tls.TLS_ECDHE_RSA_WITH_RC4_128_SHA},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewUnstartedServer(http.HandlerFunc(
+				func(w http.ResponseWriter, r *http.Request) {
+					w.Write([]byte("ok"))
+				}))
+			srv.TLS = &tls.Config{ //nolint:gosec // a weak server is the fixture
+				MinVersion:   tls.VersionTLS10,
+				MaxVersion:   tls.VersionTLS12,
+				CipherSuites: []uint16{tc.suite},
+			}
+			srv.StartTLS()
+			defer srv.Close()
+
+			// The runtime may have dropped the suite entirely; that is not a
+			// regression in the rule.
+			probe, err := tls.Dial("tcp", strings.TrimPrefix(srv.URL, "https://"),
+				&tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS10, //nolint:gosec // fixture check
+					CipherSuites: legacySuites()})
+			if err != nil {
+				t.Skipf("this Go runtime will not speak %s: %v", tc.name, err)
+			}
+			probe.Close()
+
+			mustFind(t, ids(probeServer(t, srv)), "tls-weak-cipher-suite")
+		})
+	}
+}

@@ -395,3 +395,93 @@ matchers:
   - part: tls
     patterns:
       - '(?im)^key_bits:\s*(?:512|768|1024)\s*$'
+
+---
+
+id: tls-accepts-obsolete-protocol
+type: http
+info:
+  name: Server still accepts TLS 1.0 or 1.1
+  severity: high
+  description: >-
+    A handshake reports the best version both sides agreed on, not the worst
+    the server would allow. Asking for each version in turn shows this host
+    still completes a handshake over TLS 1.0 or 1.1 — which is the version an
+    attacker will ask for, and the one a downgrade attack aims at.
+  remediation: >-
+    Set the minimum version to TLS 1.2. In nginx use ssl_protocols TLSv1.2
+    TLSv1.3; in Apache use SSLProtocol -all +TLSv1.2 +TLSv1.3.
+  reference:
+    - https://ssl-config.mozilla.org/
+    - https://datatracker.ietf.org/doc/rfc8996/
+  tags: [tls, crypto, downgrade]
+matchers:
+  - part: tls
+    patterns:
+      - '(?im)^accepts_obsolete_tls:\s*true\s*$'
+
+---
+
+id: tls-no-forward-secrecy
+type: http
+info:
+  name: Cipher suite offers no forward secrecy
+  severity: medium
+  description: >-
+    The suite negotiated does not use an ephemeral key exchange, so every
+    session it protects can be decrypted by anyone who later obtains the
+    server's private key — including traffic captured today and stored.
+  remediation: >-
+    Prefer ECDHE suites, or move to TLS 1.3, where every defined suite has
+    forward secrecy.
+  reference:
+    - https://ssl-config.mozilla.org/
+  tags: [tls, crypto]
+matchers:
+  - part: tls
+    patterns:
+      - '(?im)^forward_secrecy:\s*false\s*$'
+
+---
+
+id: tls-weak-cipher-suite
+type: http
+info:
+  name: Weak cipher suite negotiated
+  severity: high
+  description: >-
+    The connection settled on a suite built from RC4, 3DES, an export-grade
+    key, or no encryption at all. Each has a published practical attack.
+  remediation: >-
+    Remove these from the offered list and use the modern Mozilla
+    configuration for your server.
+  reference:
+    - https://ssl-config.mozilla.org/
+  tags: [tls, crypto]
+matchers:
+  - part: tls
+    patterns:
+      - '(?im)^cipher:\s*\S*(?:RC4|3DES|DES_CBC|EXPORT|NULL|_MD5|ANON)'
+
+---
+
+id: tls-certificate-overlong-validity
+type: http
+info:
+  name: Certificate lifetime is longer than a public CA may issue
+  severity: low
+  description: >-
+    A publicly trusted certificate may not be valid for more than 398 days.
+    A longer life means it was issued by hand or by a private CA, and a
+    certificate nobody renews on a schedule is one nobody notices expiring —
+    or revoking, if the key leaks.
+  remediation: >-
+    Issue short-lived certificates and renew them automatically. ACME clients
+    do this unattended.
+  reference:
+    - https://cabforum.org/working-groups/server/baseline-requirements/
+  tags: [tls, certificate]
+matchers:
+  - part: tls
+    patterns:
+      - '(?im)^validity_days:\s*(?:[4-9][0-9]{2}|[0-9]{4,})\s*$'

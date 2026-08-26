@@ -119,6 +119,15 @@ jobs:
       - name: History carries no secrets
         run: ./qalqon history . -exclude testdata -fail-on low
 
+      # The TLS rules are only worth having if the probe can still reach the
+      # servers they describe. Go keeps removing old versions and cipher
+      # suites from what a client offers by default, and each removal has
+      # silently turned a finding into "unreachable" — so pin the behaviour
+      # here, against a server built for the purpose, on whatever Go the
+      # runner has.
+      - name: Probe reaches an obsolete TLS server
+        run: go test . -run 'ObsoleteTLS|WeakCipher|StaticRSA|Sweep' -v
+
   dogfood:
     name: Scan this repository
     runs-on: ubuntu-latest

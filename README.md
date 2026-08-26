@@ -14,7 +14,7 @@ versions in your dependency manifests against the public vulnerability database.
 [![Go Reference](https://img.shields.io/badge/go-1.22%2B-00ADD8.svg)](https://go.dev)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Single binary](https://img.shields.io/badge/install-one%20binary-brightgreen.svg)](#install)
-[![Templates](https://img.shields.io/badge/templates-166-informational.svg)](templates/)
+[![Templates](https://img.shields.io/badge/templates-171-informational.svg)](templates/)
 
 <img src="docs/demo-scan.png" alt="qalqon scanning a project and reporting seven findings across a Dockerfile, a compose file and a workflow" width="880">
 
@@ -89,6 +89,7 @@ service:
 qalqon target example.com                    # bare host is treated as https
 qalqon target -l my-domains.txt              # one per line
 qalqon target https://a.example https://b.example -json
+qalqon target example.com -tls-versions       # also ask which TLS versions it accepts
 ```
 
 **Scope, deliberately.** Each target gets exactly one ordinary GET — the same request a
@@ -112,8 +113,11 @@ already done:
 
 ```
 version: TLS 1.3
+cipher: TLS_AES_128_GCM_SHA256
+forward_secrecy: true
 issuer: E5
 not_after: 2026-11-02T09:14:00Z
+validity_days: 90
 days_remaining: 81
 expired: false
 expires_within_30d: false
@@ -124,6 +128,37 @@ key_bits: 256
 
 When the certificate fails verification the probe retries without it, so a broken chain
 is reported rather than turning into a connection error you have to debug by hand.
+
+### Which versions the server *accepts*
+
+A handshake tells you the best version both sides could agree on — not the worst the
+server would allow. A host that speaks TLS 1.3 to your browser may still complete a
+TLS 1.0 handshake for anyone who asks, and that is the version an attacker asks for.
+
+`-tls-versions` asks for each version in turn, one handshake each, and adds the answer
+to the `tls` part:
+
+```
+versions_checked: true
+supports_tls10: true
+supports_tls11: true
+supports_tls12: true
+supports_tls13: true
+weakest_version: TLS 1.0
+accepts_obsolete_tls: true
+```
+
+It is off by default because it costs four extra handshakes per host. Nothing is sent
+beyond the handshake itself, and the certificate is not verified during the sweep —
+the question is which protocol the server agrees to speak, and a self-signed
+certificate answers that as well as a valid one.
+
+The probe also offers the obsolete cipher suites deliberately. Go has been removing
+RSA key exchange, 3DES and RC4 from what a client offers, which is right for a browser
+and wrong for a scanner: a server that speaks nothing else would answer "handshake
+failure", and the report would say the host was unreachable instead of saying it has
+no forward secrecy. Secure suites are offered first, so a server that honours client
+preference still gets the good one.
 
 ## Checking dependencies
 
@@ -314,7 +349,7 @@ qalqon scan ./testdata -t ./my-templates -no-builtin
 
 ## Coverage
 
-166 templates: 148 that read files, and 18 that read a live HTTP response.
+171 templates: 148 that read files, and 23 that read a live HTTP response.
 
 | Area | Covered by |
 |---|---|

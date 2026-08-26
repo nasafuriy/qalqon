@@ -654,6 +654,7 @@ func scanTargets(args []string, stdout, stderr io.Writer) int {
 	listFile := fs.String("l", "", "read targets from a file, one per line")
 	discover := fs.Bool("discover", false, "find the listening ports on each host first")
 	portSpec := fs.String("ports", "", "ports to try with -discover, e.g. 80,443,8000-8100")
+	tlsVersions := fs.Bool("tls-versions", false, "ask which TLS versions each host accepts (one extra handshake per version)")
 	timeout := fs.Duration("timeout", probe.DefaultTimeout, "per-target timeout")
 	concurrency := fs.Int("c", 4, "targets probed in parallel (capped at 10)")
 	userAgent := fs.String("ua", "", "override the User-Agent header")
@@ -731,10 +732,11 @@ func scanTargets(args []string, stdout, stderr io.Writer) int {
 	defer stop()
 
 	findings, failures, runStats, err := engine.RunTargets(ctx, set, targets, engine.TargetOptions{
-		Concurrency: *concurrency,
-		Timeout:     *timeout,
-		MaxBody:     *maxBody,
-		UserAgent:   *userAgent,
+		Concurrency:      *concurrency,
+		Timeout:          *timeout,
+		MaxBody:          *maxBody,
+		UserAgent:        *userAgent,
+		CheckTLSVersions: *tlsVersions,
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "qalqon: %v\n", err)
@@ -1015,6 +1017,7 @@ TARGET FLAGS
   -l FILE           read targets from a file, one per line
   -discover         find the listening ports on each host first
   -ports SPEC       ports to try with -discover, e.g. 80,443,8000-8100
+  -tls-versions     ask which TLS versions each host accepts
   -timeout D        per-target timeout (default 10s)
   -c N              targets in parallel, capped at 10
   -ua STRING        override the User-Agent
