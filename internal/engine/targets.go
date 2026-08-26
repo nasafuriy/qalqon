@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/nasafuriy/qalqon/internal/probe"
+	"github.com/nasafuriy/qalqon/internal/service"
 	"github.com/nasafuriy/qalqon/internal/template"
 )
 
@@ -23,6 +24,11 @@ type TargetOptions struct {
 	// CheckTLSVersions asks each https host which protocol versions it
 	// accepts, rather than only recording the one it negotiated.
 	CheckTLSVersions bool
+	// ServiceCVEs looks up the versions a host names in its own headers
+	// against a curated advisory table. Off by default: a banner is a claim
+	// rather than a measurement, and the default report is meant to be
+	// trustworthy without a caveat attached to every line.
+	ServiceCVEs bool
 }
 
 // MaxTargetConcurrency bounds parallel requests regardless of what is asked for.
@@ -78,6 +84,9 @@ func RunTargets(ctx context.Context, set *template.Set, targets []string, opts T
 				}
 
 				local := matchTarget(http, result)
+				if opts.ServiceCVEs {
+					local = append(local, serviceFindings(result)...)
+				}
 				mu.Lock()
 				findings = append(findings, local...)
 				mu.Unlock()
@@ -173,4 +182,34 @@ func targetFinding(t *template.Template, result *probe.Result, line int, part, m
 		Line:        line,
 		Match:       truncate(match, 160),
 	}
+}
+
+// serviceFindings reports what is publicly known about the versions a host
+// disclosed in its own headers.
+//
+// This does not go through the template engine. A template matches text, and
+// the question here is arithmetic — is 1.10.3 below 1.20.1 — which a regex
+// cannot answer without a rule per version, and would answer wrongly the
+// moment a version reached double digits.
+func serviceFindings(result *probe.Result) []Finding {
+	var out []Finding
+	for _, f := range service.Findings(result.Parts[template.PartHeader]) {
+		severity, err := template.ParseSeverity(f.Severity)
+		if err != nil {
+			severity = template.SeverityInfo
+		}
+		out = append(out, Finding{
+			TemplateID:  f.ID,
+			Name:        f.Name,
+			Severity:    severity,
+			Description: f.Description,
+			Remediation: f.Remediation,
+			Reference:   f.Refs,
+			Tags:        f.Tags,
+			Target:      result.FinalURL,
+			Part:        template.PartHeader,
+			Match:       truncate(f.Match, 160),
+		})
+	}
+	return out
 }

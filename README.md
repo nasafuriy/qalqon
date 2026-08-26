@@ -90,6 +90,7 @@ qalqon target example.com                    # bare host is treated as https
 qalqon target -l my-domains.txt              # one per line
 qalqon target https://a.example https://b.example -json
 qalqon target example.com -tls-versions       # also ask which TLS versions it accepts
+qalqon target example.com -cve                # check the versions it discloses
 ```
 
 **Scope, deliberately.** Each target gets exactly one ordinary GET — the same request a
@@ -159,6 +160,53 @@ and wrong for a scanner: a server that speaks nothing else would answer "handsha
 failure", and the report would say the host was unreachable instead of saying it has
 no forward secrecy. Secure suites are offered first, so a server that honours client
 preference still gets the good one.
+
+### Versions a host discloses about itself
+
+Most servers name their software and version in `Server` or `X-Powered-By`. `-cve`
+reads that claim and says what is published about it — whether upstream still fixes
+that release at all, and which landmark advisories name it:
+
+```console
+$ qalqon target http://legacy.internal -cve
+  header    critical service-known-vulnerability   CVE-2021-40438: Apache httpd 2.2.14 is in the affected range
+             Server: Apache/2.2.14 (Unix)
+             → Upgrade Apache httpd to 2.4.49 or later — the 2.2 branch is no longer
+               maintained, so upgrading within it would leave the rest unfixed. A banner
+               is a claim, not a measurement…
+```
+
+**Read this one with the caveat attached.** A banner is a claim, not a measurement. It
+can be edited or proxied away, and — the part that matters more — distributions
+backport security fixes without touching the version string, so a Debian nginx
+reporting 1.10.3 may carry years of patches upstream never put in a 1.10.3 release. So
+nothing here says *you are vulnerable*. It says *this version is in the published
+affected range*, which is the same inference an attacker draws from the same header,
+and every finding carries the caveat in its remediation line.
+
+That uncertainty is why the flag is off by default: the report you get without it is
+meant to be true without qualification.
+
+Two kinds of finding come out of it:
+
+| Finding | Says |
+|---|---|
+| `service-end-of-life` | upstream has stopped fixing this release entirely |
+| `service-known-vulnerability` | a published advisory names this version |
+
+The end-of-life boundaries are set conservatively — at a branch that is clearly dead,
+not at the newest release — because "upstream abandoned this line" survives a backport
+and "you are missing last month's patch" does not. Advice never points inside a dead
+branch: an Apache 2.2.14 host is told to move to 2.4, not to 2.2.20.
+
+Covered: nginx (and openresty), Apache httpd, PHP, Express, gunicorn, Werkzeug, IIS,
+Tomcat and lighttpd. The tables live in [internal/service/known.go](internal/service/known.go)
+and carry the date they were last reviewed, because a version table goes stale
+silently, which is the worst way for a security tool to be wrong.
+
+The best fix for most of these is the one the remediation mentions last: stop sending
+the version at all. `server_tokens off` in nginx, `ServerTokens Prod` in Apache,
+`expose_php = Off` in PHP.
 
 ## Checking dependencies
 

@@ -444,3 +444,61 @@ func TestWeakCipherSuiteIsReported(t *testing.T) {
 		})
 	}
 }
+
+// probeServerWithCVEs is probeServer with the banner lookup turned on.
+func probeServerWithCVEs(t *testing.T, srv *httptest.Server) []engine.Finding {
+	t.Helper()
+	set := builtin(t).OfKind(template.KindHTTP)
+
+	findings, failures, _, err := engine.RunTargets(
+		context.Background(), set, []string{srv.URL},
+		engine.TargetOptions{ServiceCVEs: true})
+	if err != nil {
+		t.Fatalf("target run failed: %v", err)
+	}
+	for _, f := range failures {
+		t.Fatalf("%s could not be probed: %s", f.Target, f.Err)
+	}
+	return findings
+}
+
+func TestServiceVersionLookup(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Server", "Apache/2.2.14 (Ubuntu)")
+		w.Header().Set("X-Powered-By", "PHP/5.4.16")
+		w.Write([]byte("ok"))
+	}))
+	defer srv.Close()
+
+	// Off by default: the banner lookup is opt-in, because a version string is
+	// a claim rather than a measurement.
+	mustNotFind(t, ids(probeServer(t, srv)),
+		"service-end-of-life", "service-known-vulnerability")
+
+	got := probeServerWithCVEs(t, srv)
+	mustFind(t, ids(got), "service-end-of-life", "service-known-vulnerability")
+
+	for _, f := range got {
+		if !strings.HasPrefix(f.TemplateID, "service-") {
+			continue
+		}
+		if f.Match == "" {
+			t.Errorf("%s shows no evidence", f.Name)
+		}
+		if !strings.Contains(f.Remediation, "backport") {
+			t.Errorf("%s does not carry the caveat about backported fixes", f.Name)
+		}
+	}
+}
+
+// A current server must stay silent, or the flag is not worth turning on.
+func TestServiceVersionLookupIsQuietOnCurrentSoftware(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Server", "nginx/1.28.0")
+		w.Write([]byte("ok"))
+	}))
+	defer srv.Close()
+
+	mustNotFind(t, ids(probeServerWithCVEs(t, srv)),
+		"service-end-of-life", "service-known-vulnerability")
+}

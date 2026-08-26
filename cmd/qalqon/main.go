@@ -655,6 +655,7 @@ func scanTargets(args []string, stdout, stderr io.Writer) int {
 	discover := fs.Bool("discover", false, "find the listening ports on each host first")
 	portSpec := fs.String("ports", "", "ports to try with -discover, e.g. 80,443,8000-8100")
 	tlsVersions := fs.Bool("tls-versions", false, "ask which TLS versions each host accepts (one extra handshake per version)")
+	serviceCVEs := fs.Bool("cve", false, "look up the versions disclosed in Server and X-Powered-By against known advisories")
 	timeout := fs.Duration("timeout", probe.DefaultTimeout, "per-target timeout")
 	concurrency := fs.Int("c", 4, "targets probed in parallel (capped at 10)")
 	userAgent := fs.String("ua", "", "override the User-Agent header")
@@ -737,6 +738,7 @@ func scanTargets(args []string, stdout, stderr io.Writer) int {
 		MaxBody:          *maxBody,
 		UserAgent:        *userAgent,
 		CheckTLSVersions: *tlsVersions,
+		ServiceCVEs:      *serviceCVEs,
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "qalqon: %v\n", err)
@@ -1018,6 +1020,7 @@ TARGET FLAGS
   -discover         find the listening ports on each host first
   -ports SPEC       ports to try with -discover, e.g. 80,443,8000-8100
   -tls-versions     ask which TLS versions each host accepts
+  -cve              check disclosed versions against known advisories
   -timeout D        per-target timeout (default 10s)
   -c N              targets in parallel, capped at 10
   -ua STRING        override the User-Agent

@@ -128,6 +128,13 @@ jobs:
       - name: Probe reaches an obsolete TLS server
         run: go test . -run 'ObsoleteTLS|WeakCipher|StaticRSA|Sweep' -v
 
+      # The version tables are hand-curated and go stale silently, which is the
+      # worst way for a security tool to be wrong. These tests are the guard:
+      # every advisory range has to be well formed, every alias has to reach a
+      # table, and current releases have to produce nothing at all.
+      - name: Version tables are consistent
+        run: go test ./internal/service/ -v -run 'TableIsWellFormed|EveryAlias|CurrentVersions'
+
   dogfood:
     name: Scan this repository
     runs-on: ubuntu-latest
