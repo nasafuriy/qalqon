@@ -334,6 +334,19 @@ var (
 	tplMatchers = regexp.MustCompile(`(?m)^matchers:\s*$`)
 )
 
+// IsQalqonTemplate reports whether this content is itself a rule definition.
+//
+// Exported because history has to make the same decision. A rule that says
+// what an AWS key looks like contains something shaped exactly like an AWS
+// key, and a scanner that reports its own template library is unusable. The
+// two commands agreeing matters: when scan stays quiet about a file and
+// history does not, the only way to reconcile them is -exclude, and that is
+// a blunt instrument to reach for over a disagreement between two parts of
+// the same tool.
+func IsQalqonTemplate(content []byte) bool {
+	return isQalqonTemplate(content)
+}
+
 func isQalqonTemplate(content []byte) bool {
 	return tplID.Match(content) && tplFiles.Match(content) && tplMatchers.Match(content)
 }

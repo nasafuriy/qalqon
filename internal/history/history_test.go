@@ -268,3 +268,54 @@ func TestExcludeMatchesSeveralShapes(t *testing.T) {
 		}
 	}
 }
+
+// A commit that adds a rule adds something shaped exactly like the credential
+// the rule describes. scan has always skipped its own template library;
+// history did not, so this repository's own CI reported the fixture rule in
+// this very file as a leaked AWS key. The two commands have to agree.
+func TestTemplateDefinitionsAreNotReportedAsSecrets(t *testing.T) {
+	// Named so the rule's own globs match it, and carrying an example key in
+	// its description — otherwise the test would pass because nothing matched
+	// rather than because the exclusion worked.
+	const ruleWithExample = `
+id: aws-access-key-id
+type: file
+info:
+  name: AWS access key id in source
+  severity: critical
+  description: Matches identifiers such as AKIAIOSFODNN7EXAMPLE.
+  remediation: Disable the key in IAM.
+files:
+  - "*.env"
+matchers:
+  - patterns:
+      - 'AKIA[0-9A-Z]{16}'
+`
+
+	r := newRepo(t)
+	r.commit("rule.env", ruleWithExample, "add a rule")
+
+	findings, _, err := Scan(context.Background(), ruleSet(t), Options{Root: r.dir})
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	for _, f := range findings {
+		t.Errorf("a committed rule was reported as a secret: %s in %s", f.Name, f.File)
+	}
+}
+
+// The exclusion recognises whole rules only. A commit that edits one line of
+// a template must still be read, or "add the key to the allowlist" becomes a
+// way to hide a credential.
+func TestPartialTemplateEditsAreStillRead(t *testing.T) {
+	r := newRepo(t)
+	r.commit("notes.txt", "  - 'AKIAIOSFODNN7EXAMPLE'\n", "looks like a rule fragment")
+
+	findings, _, err := Scan(context.Background(), ruleSet(t), Options{Root: r.dir})
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if len(findings) == 0 {
+		t.Error("a fragment that is not a whole rule was skipped as though it were one")
+	}
+}

@@ -199,6 +199,16 @@ func (w *walker) flush() {
 	}
 
 	content := []byte(w.buf.String())
+
+	// The same self-exclusion scan makes. A commit that adds a rule adds
+	// something shaped exactly like the credential the rule describes, and
+	// reporting that is how a scanner ends up switched off. Only whole rules
+	// are recognised — id, files and matchers together — so a one-line edit to
+	// a template is still read normally.
+	if engine.IsQalqonTemplate(content) {
+		return
+	}
+
 	base := w.path
 	if i := strings.LastIndex(base, "/"); i >= 0 {
 		base = base[i+1:]
