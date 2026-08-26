@@ -156,6 +156,10 @@ func Text(w io.Writer, findings []engine.Finding, stats engine.Stats, opts TextO
 			// the response the rule looked at.
 			where := "—"
 			switch {
+			case f.Commit != "":
+				// A history finding is located by commit; the line number in
+				// a diff is not a line number in any file that exists.
+				where = f.Commit[:min(len(f.Commit), 8)]
 			case f.Part != "":
 				where = f.Part
 			case f.Line > 0 && f.Column > 0:

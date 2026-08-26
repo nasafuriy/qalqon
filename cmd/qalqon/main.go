@@ -23,6 +23,7 @@ import (
 	"github.com/nasafuriy/qalqon"
 	"github.com/nasafuriy/qalqon/internal/deps"
 	"github.com/nasafuriy/qalqon/internal/engine"
+	"github.com/nasafuriy/qalqon/internal/history"
 	"github.com/nasafuriy/qalqon/internal/output"
 	"github.com/nasafuriy/qalqon/internal/probe"
 	"github.com/nasafuriy/qalqon/internal/template"
@@ -67,6 +68,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return scanTargets(rest, stdout, stderr)
 	case "deps":
 		return scanDeps(rest, stdout, stderr)
+	case "history":
+		return scanHistory(rest, stdout, stderr)
 	default:
 		// Allow "qalqon ." as shorthand for "qalqon scan .".
 		if strings.HasPrefix(command, "-") || fileish(command) {
@@ -279,6 +282,153 @@ func discoverTargets(hosts []string, spec string, timeout time.Duration,
 		}
 	}
 	return out, nil
+}
+
+/* ---------------------------------------------------------------- history */
+
+// scanHistory runs the secret rules over what each commit added, rather than
+// over the files that happen to be checked out.
+//
+// Deleting a credential in a later commit does not remove it. It stays in
+// the history, in every clone, and in the forge's API, so a working-tree
+// scan gives exactly the wrong answer to someone who thinks they cleaned it
+// up. Rotating is the only fix, which is why the remediation says so.
+func scanHistory(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("history", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+
+	var (
+		dirs       stringList
+		severities stringList
+		tags       stringList
+		ids        stringList
+		exclude    stringList
+	)
+	fs.Var(&dirs, "t", "extra template directory (repeatable)")
+	fs.Var(&severities, "severity", "only run templates with these severities")
+	fs.Var(&tags, "tags", "only run templates carrying these tags")
+	fs.Var(&ids, "id", "only run these template ids")
+	fs.Var(&exclude, "exclude", "skip paths matching these globs")
+
+	maxCommits := fs.Int("n", 0, "stop after this many commits (0 scans all)")
+	since := fs.String("since", "", `only commits after this, e.g. "6 months ago"`)
+	minSeverity := fs.String("min-severity", "", "skip templates below this severity")
+	failOn := fs.String("fail-on", "low", "exit 1 at this severity or above (none disables)")
+	noBuiltin := fs.Bool("no-builtin", false, "ignore the embedded template library")
+	allRules := fs.Bool("all-rules", false, "run every file rule, not only the secret ones")
+
+	asJSON := fs.Bool("json", false, "write a JSON report")
+	asJSONL := fs.Bool("jsonl", false, "write one JSON finding per line")
+	asSARIF := fs.Bool("sarif", false, "write SARIF 2.1.0")
+	outPath := fs.String("o", "", "write to this file instead of stdout")
+	quiet := fs.Bool("quiet", false, "findings only")
+	stats := fs.Bool("stats", false, "print throughput")
+	forceColor := fs.Bool("color", false, "force ANSI colour")
+	noColor := fs.Bool("no-color", false, "disable ANSI colour")
+
+	fs.Usage = func() { usage(stderr) }
+	if err := fs.Parse(reorder(fs, args)); err != nil {
+		return exitError
+	}
+
+	root := "."
+	if fs.NArg() > 0 {
+		root = fs.Arg(0)
+	}
+
+	set, code := loadTemplates(dirs, *noBuiltin, stderr)
+	if code != exitOK {
+		return code
+	}
+
+	var min template.Severity
+	if *minSeverity != "" {
+		parsed, err := template.ParseSeverity(*minSeverity)
+		if err != nil {
+			fmt.Fprintf(stderr, "qalqon: %v\n", err)
+			return exitError
+		}
+		min = parsed
+	}
+
+	set = set.Filter(min, severities, tags, ids).OfKind(template.KindFile)
+	// Configuration rules judge a file as it stands; a diff hunk is not that
+	// file, so running them over history mostly produces noise. Secrets are
+	// the exception: a credential is a credential wherever it appears.
+	if !*allRules && len(tags) == 0 && len(ids) == 0 {
+		set = set.Filter(min, nil, stringList{"secret"}, nil)
+	}
+	if set.Len() == 0 {
+		fmt.Fprintln(stderr, "qalqon: no file templates match those filters")
+		return exitError
+	}
+
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
+	findings, hstats, err := history.Scan(ctx, set, history.Options{
+		Root:       root,
+		MaxCommits: *maxCommits,
+		Since:      *since,
+		Exclude:    exclude,
+	})
+	if err != nil && len(findings) == 0 {
+		fmt.Fprintf(stderr, "qalqon: %v\n", err)
+		return exitError
+	}
+
+	runStats := engine.Stats{
+		FilesWalked:  int64(hstats.Commits),
+		FilesRead:    int64(hstats.Files),
+		BytesRead:    hstats.Bytes,
+		TemplatesRun: set.Len(),
+		Duration:     hstats.Duration,
+	}
+
+	sink := stdout
+	if *outPath != "" {
+		f, err := os.Create(*outPath)
+		if err != nil {
+			fmt.Fprintf(stderr, "qalqon: %v\n", err)
+			return exitError
+		}
+		defer f.Close()
+		sink = f
+	}
+
+	switch {
+	case *asSARIF:
+		err = output.SARIF(sink, findings, version)
+	case *asJSONL:
+		err = output.JSONL(sink, findings)
+	case *asJSON:
+		err = output.JSON(sink, findings, runStats, root, version)
+	default:
+		err = output.Text(sink, findings, runStats, output.TextOptions{
+			Color:   *outPath == "" && output.ColorEnabled(*forceColor, *noColor),
+			Quiet:   *quiet,
+			Stats:   *stats,
+			Version: version,
+			Unit:    "commits",
+		})
+	}
+	if err != nil {
+		fmt.Fprintf(stderr, "qalqon: %v\n", err)
+		return exitError
+	}
+
+	if strings.EqualFold(*failOn, "none") || len(findings) == 0 {
+		return exitOK
+	}
+	threshold, err := template.ParseSeverity(*failOn)
+	if err != nil {
+		fmt.Fprintf(stderr, "qalqon: %v\n", err)
+		return exitError
+	}
+	if output.Highest(findings).Rank() >= threshold.Rank() {
+		return exitFindings
+	}
+	return exitOK
 }
 
 /* ------------------------------------------------------------ dependencies */
@@ -836,6 +986,7 @@ USAGE
   qalqon scan <path> [flags]
   qalqon target <url>... [flags]   check hosts you run: headers, cookies, TLS
   qalqon deps <path> [flags]       check dependency versions against osv.dev
+  qalqon history <path> [flags]    look for secrets in commits, not just files
   qalqon templates [flags]         list the templates that would run
   qalqon validate <dir>            check your own templates parse
   qalqon version
@@ -848,6 +999,17 @@ DEPS FLAGS
   Reads go.mod, package-lock.json, requirements.txt, Cargo.lock and
   composer.lock. This is the only command that uses the network: scanning
   configuration stays offline, because a vulnerability database cannot.
+
+HISTORY FLAGS
+  -n N              stop after this many commits
+  -since WHEN       only commits after this, e.g. -since "6 months ago"
+  -all-rules        run every file rule, not only the secret ones
+  -exclude GLOB     skip matching paths (repeatable)
+
+  Runs the secret rules over what each commit added. A credential deleted in
+  a later commit is still in the history and in every clone, so a scan of
+  the working tree reports nothing while the value is still exposed. That is
+  also why the remediation says to rotate rather than to rewrite.
 
 TARGET FLAGS
   -l FILE           read targets from a file, one per line
@@ -892,6 +1054,7 @@ EXIT CODES
 EXAMPLES
   qalqon .
   qalqon deps .
+  qalqon history .
   qalqon deps . -direct -fail-on high
   qalqon scan . -severity high,critical
   qalqon scan . -tags docker -stats

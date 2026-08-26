@@ -39,6 +39,11 @@ type Finding struct {
 	Line   int    `json:"line,omitempty"`
 	Column int    `json:"column,omitempty"`
 	Match  string `json:"match,omitempty"`
+	// Commit is set by a history scan, and names where the content was
+	// introduced. The file it names may no longer exist.
+	Commit string `json:"commit,omitempty"`
+	Author string `json:"author,omitempty"`
+	Date   string `json:"date,omitempty"`
 }
 
 // Where names the thing a finding is about, whichever mode produced it.

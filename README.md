@@ -166,6 +166,38 @@ This is the one command that makes a network request. Scanning configuration sta
 entirely offline, because it can; a vulnerability database cannot, since the answer
 changes daily and no useful copy of it fits in a binary.
 
+## Secrets in the history
+
+Deleting a credential in a later commit does not remove it. It is still in the
+history, still in every clone, and still readable through the forge's API — so a scan
+of the working tree reports nothing to someone who believes they cleaned it up.
+
+```console
+$ qalqon scan .
+No findings.
+
+$ qalqon history .
+qalqon · 21 templates · 3 commits in 42ms
+
+config.env
+  501a4d06  critical aws-access-key-id  AWS access key id in source
+             AKIAIOSFODNN7EXAMPLE
+             → Disable the key in IAM now, then rotate it. The value is in the history
+               and in every clone, so rewriting the commit does not undo the exposure:
+               rotate it first.
+
+1 finding   1 critical
+```
+
+The position column carries the commit that introduced the value, and the JSON output
+adds the author and date alongside it.
+
+Only the secret rules run by default. A configuration rule judges a file as it stands,
+and a diff hunk is not that file, so running those over history produces mostly noise;
+`-all-rules` overrides this when you want it anyway. A value that survives many commits
+is reported once, against the commit that introduced it, rather than once per commit
+that carried it forward.
+
 ## In CI
 
 Qalqon emits SARIF, so findings land in the GitHub **Security** tab and appear as inline

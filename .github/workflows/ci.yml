@@ -111,6 +111,14 @@ jobs:
             exit 1
           fi
 
+      # This repository is its own fixture: the history has to be clean, and
+      # the command has to work on a real one rather than only on a fabricated
+      # temp repo in the unit tests. testdata is excluded for the same reason
+      # the dogfood scan excludes it — those credentials are committed on
+      # purpose, and reporting them would bury a real one.
+      - name: History carries no secrets
+        run: ./qalqon history . -exclude testdata -fail-on low
+
   dogfood:
     name: Scan this repository
     runs-on: ubuntu-latest
