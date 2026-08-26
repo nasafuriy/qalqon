@@ -65,11 +65,32 @@ jobs:
           cat > notes.md <<EOF
           ## Qalqon $TAG
 
-          A single binary that scans a repository for insecure Docker, Compose,
-          Kubernetes, Helm, Terraform, CloudFormation, Ansible, GitHub Actions,
-          GitLab CI, nginx, Apache, Caddy, Traefik, HAProxy, Envoy, PHP, SSH,
-          PostgreSQL, MySQL, MongoDB and Redis configuration, and for
-          credentials that should not have been committed.
+          One binary, no configuration, five things it looks at:
+
+          | Command | Looks for |
+          |---|---|
+          | \`qalqon scan .\` | insecure Docker, Compose, Kubernetes, Helm, Terraform, CloudFormation, Ansible, GitHub Actions, GitLab CI, nginx, Apache, Caddy, Traefik, HAProxy, Envoy, sshd, systemd, PHP, PostgreSQL, MySQL, MongoDB and Redis configuration — and committed credentials |
+          | \`qalqon deps .\` | known vulnerabilities in the versions your manifests pin, via [osv.dev](https://osv.dev) |
+          | \`qalqon history .\` | secrets in commits, not only in the files that are there now |
+          | \`qalqon target host\` | security headers, cookie flags and TLS posture of a host you run |
+          | \`qalqon templates\` | every rule that would run |
+
+          Deleting a credential in a later commit does not remove it — it is still
+          in every clone — which is why \`history\` exists and reports the commit
+          that introduced it.
+
+          \`qalqon target\` takes two opt-in flags. \`-tls-versions\` asks the host
+          which protocol versions it *accepts*, rather than trusting the one a
+          single handshake negotiated; a server that speaks TLS 1.3 to your browser
+          may still complete a TLS 1.0 handshake for anyone who asks. \`-cve\` reads
+          the version a host discloses in its own headers and says what is published
+          about it — with the caveat, in every finding, that a banner is a claim
+          rather than a measurement, since distributions backport fixes without
+          changing the version string.
+
+          Scanning stays entirely offline. \`deps\` is the one command that makes a
+          network request, because a vulnerability database changes daily and no
+          useful copy of it fits in a binary.
 
           ### Install
 
