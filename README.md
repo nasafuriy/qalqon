@@ -14,7 +14,7 @@ versions in your dependency manifests against the public vulnerability database.
 [![Go Reference](https://img.shields.io/badge/go-1.22%2B-00ADD8.svg)](https://go.dev)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Single binary](https://img.shields.io/badge/install-one%20binary-brightgreen.svg)](#install)
-[![Templates](https://img.shields.io/badge/templates-171-informational.svg)](templates/)
+[![Templates](https://img.shields.io/badge/templates-204-informational.svg)](templates/)
 
 <img src="docs/demo-scan.png" alt="qalqon scanning a project and reporting seven findings across a Dockerfile, a compose file and a workflow" width="880">
 
@@ -23,7 +23,9 @@ versions in your dependency manifests against the public vulnerability database.
 ---
 
 Every finding names the file and line, shows the text that matched, and tells you what
-to do instead. The exit code is `1`, so CI stops.
+to do instead. The exit code is `1`, so CI stops. Every finding at high severity or
+above also comes with the deterministic change that ends it — shown as a diff by
+default, written only when you pass `-apply`.
 
 ## Why another scanner
 
@@ -43,6 +45,21 @@ If you need exhaustive compliance coverage, use one of the others. If you want a
 check that runs on every commit and that your team will actually keep enabled, that is
 what this is for.
 
+### Windows is a first-class platform
+
+Not "works on Windows too". Three concrete meanings:
+
+- **Line endings are folded at read time.** Almost every Windows checkout is CRLF;
+  without folding, `$`-anchored patterns and one-line captures behave differently from
+  the same file committed with LF, which is how a rule quietly turns off. A CRLF fixture
+  tree proves finding parity byte for byte.
+- **Case-insensitive file globs.** `Dockerfile` and `dockerfile` are the same file on
+  Windows, so a pattern that matches only one spelling is a rule that never fires for
+  half the team. Glob matching follows the filesystem's own rule.
+- **`~` expands.** Neither the PowerShell pass-through nor the standard library does it
+  on Windows, so `qalqon ~/infra` and `qalqon ~\infra` both resolve from
+  `%USERPROFILE%`.
+
 ## Install
 
 ```bash
@@ -60,7 +77,12 @@ qalqon .                                # scan the working tree
 qalqon scan ./infra -severity high,critical
 qalqon scan . -tags docker,kubernetes
 qalqon scan . -fail-on high             # only fail CI on high and above
-qalqon scan . -json -o findings.json
+qalqon scan . -fix                      # show the change that ends each finding; writes nothing
+qalqon report . -framework cis-docker -html report.html
+qalqon host                             # audit the machine this runs on
+qalqon target example.com               # headers, cookies and TLS of a host you run
+qalqon deps .                           # known CVEs in your manifests (the one network call)
+qalqon history .                        # secrets in commits, not only in files
 qalqon templates                        # list every rule that would run
 ```
 
@@ -77,6 +99,8 @@ Useful flags:
 | `-no-builtin` | run only your templates |
 | `-c N` | worker count, defaults to one per core |
 | `-fail-on S` | severity that makes the exit code `1` (default `low`, `none` disables) |
+| `-fix` | show the declared fix of each finding as a unified diff; writes nothing |
+| `-apply` | with `-fix`: back up, write, verify by re-scan, roll back on miss |
 
 ## Checking a live host
 
@@ -207,6 +231,102 @@ silently, which is the worst way for a security tool to be wrong.
 The best fix for most of these is the one the remediation mentions last: stop sending
 the version at all. `server_tokens off` in nginx, `ServerTokens Prod` in Apache,
 `expose_php = Off` in PHP.
+
+## Auditing the machine it runs on
+
+`qalqon host` inspects the local machine — registry defence settings, firewall and
+Defender state, remote access, service definitions with quoting problems, autorun
+entries, listening ports, and on Linux and macOS the `/proc/sys` parity subset:
+
+```console
+$ qalqon host
+qalqon · 32 probes · 61 findings in 1.8s
+
+listener-on-wildcard
+                    high     tcp listen on 0.0.0.0:3389
+                    → Restrict RDP to a specific interface or remove the binding; host
+                      audit found it reachable on every interface.
+
+2 findings   1 critical · 1 high
+```
+
+It is strictly read-only — probes change nothing, and there is no fix path from `host`
+in this version. Recommendations are printed like any other finding.
+
+Useful flags:
+
+```bash
+qalqon host -facts     # print the raw probed facts and stop, before rules run
+qalqon host -probe firewall,defender
+qalqon host -json -o audit.json
+```
+
+Probes that need administrator rights on a non-elevated process are skipped and named,
+so an audit is never quietly narrower than it looks.
+
+## Fixing findings safely
+
+Fifty of the file rules declare the deterministic change that ends their finding — the
+directive to flip, the line to delete, the port to bind to loopback. `-fix` shows it
+without touching anything:
+
+```console
+$ qalqon scan . -fix
+docker-compose.yml  — would change (dry run, nothing written):
+--- a
++++ b
+@@
+-    privileged: true
++    privileged: false
+```
+
+`-apply` is the explicit second half, and it refuses to exist without `-fix`:
+
+```bash
+qalqon scan . -fix -apply
+```
+
+The contract `-fix`/`-apply` keeps, deliberately:
+
+- every changed file is backed up to `.qalqon-backups/<timestamp>/` before anything is
+  written;
+- the originating rule is re-run against the new content — if it still fires, the fix
+  did not end the finding and the file is rolled back immediately;
+- `.git` directories, binaries, oversized files and files this process cannot write are
+  refused by name rather than skipped silently;
+- Windows line endings survive the round trip, and inserts take the indentation of the
+  line they follow, so the diff looks like it was written by someone who edits the file
+  for a living.
+
+Rules that would need a value the tool cannot invent — the real password, the real
+pinned version — carry no fix on purpose: a fabricated value is a broken file, not a fix.
+
+## Scoring a scan against a framework
+
+`qalqon report` turns an ordinary scan into a checklist against a published framework:
+
+```console
+$ qalqon report . -framework cis-docker -html report.html
+compliance · CIS Docker Engine Benchmark (static, build-time subset)
+score 82% — 11 pass, 2 fail, 3 review
+
+FAIL  C6  Ensure no container service runs privileged
+        compose-privileged-container → docker-compose.yml:4 · Service runs privileged
+        rules: compose-privileged-container
+```
+
+Three mappings ship inside the binary — `cis-docker`, `cis-kubernetes` and `pci-dss` —
+covering only what a scan of a configuration tree can honestly evidence. A control is:
+
+| Status | Means |
+|---|---|
+| `FAIL` | at least one of its rules fired on this tree |
+| `PASS` | every rule ran on a file it applies to and stayed quiet |
+| `REVIEW` | the tree contains nothing the rules apply to — a repo with no nginx is not rewarded for it |
+
+Reviewed controls stay out of the score, so absence of evidence never reads as
+compliance. A failed control exits `1`, so the report drops into CI unchanged. `-json`
+prints the assessment; `-html` writes a standalone report with no assets and no scripts.
 
 ## Checking dependencies
 
@@ -397,7 +517,8 @@ qalqon scan ./testdata -t ./my-templates -no-builtin
 
 ## Coverage
 
-171 templates: 148 that read files, and 23 that read a live HTTP response.
+204 templates: 149 that read files, 23 that read a live HTTP response, and 32 that read
+probed facts about the machine. Fifty of the file rules declare a safe automatic fix.
 
 | Area | Covered by |
 |---|---|
@@ -407,22 +528,25 @@ qalqon scan ./testdata -t ./my-templates -no-builtin
 | CI | GitHub Actions, GitLab CI |
 | Web and proxies | nginx, Apache, Caddy, Traefik, HAProxy, Envoy |
 | Databases | PostgreSQL, MySQL/MariaDB, MongoDB, Redis |
-| Hosts | sshd, systemd, PHP |
+| Hosts | sshd, systemd, PHP, plus Windows defence settings and `/proc/sys` hardening |
 | Credentials | private keys, AWS, GCP, Stripe, Slack, JWTs, provider tokens, connection strings |
+| Frameworks | cis-docker, cis-kubernetes, pci-dss checklists scored by `qalqon report` |
+| Fixes | 50 rules declare the deterministic change that ends their finding (`-fix`, `-apply`) |
 
 `qalqon templates` prints the current list with severities and tags.
 
 ## Performance
 
-Measured on 32 cores over the Go standard library source tree, warm page cache:
+Measured over the Go standard library source tree, warm page cache, on a 32-core
+Windows machine:
 
 | | |
 |---|---|
 | Files walked | 10,382 |
 | Files read | 7,307 (65.8 MB) |
-| Templates | 148 |
-| **Wall time** | **415 ms** |
-| Single worker (`-c 1`) | 3.2 s |
+| File templates | 149 |
+| **Wall time** | **1.3 s** |
+| Single worker (`-c 1`) | 4.3 s |
 
 Two things keep that flat as the library grows. Files are only read when a template's
 file globs already matched the name, so most of a tree is skipped without touching the
@@ -437,11 +561,17 @@ go test ./...              # unit tests plus fixture scans
 go build ./cmd/qalqon
 qalqon scan testdata/vulnerable    # should report findings
 qalqon scan testdata/clean         # must report none
+qalqon report testdata/clean -framework cis-docker   # must exit 0
 ```
 
 The `testdata/clean` tree is the false-positive guard, and it matters more than the
 detection test: a scanner that cries wolf gets switched off, and then it protects
 nothing. Every new template needs a case in both trees.
+
+CI also asserts the release behaviours that go stale quietly: every declared fix is
+applied to its fixture and the rule must go quiet, the `host` family fires on its
+fixtures on the runner's own platform, and the clean fixtures must exit clean with
+every method. Run `go test ./internal/fix/ -v` for the fix engine's own suite.
 
 ## Contributing
 

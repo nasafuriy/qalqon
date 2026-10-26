@@ -65,15 +65,31 @@ jobs:
           cat > notes.md <<EOF
           ## Qalqon $TAG
 
-          One binary, no configuration, five things it looks at:
+          One binary, no configuration. It looks at your configurations, your
+          machine, your pipeline and your dependencies:
 
           | Command | Looks for |
           |---|---|
           | \`qalqon scan .\` | insecure Docker, Compose, Kubernetes, Helm, Terraform, CloudFormation, Ansible, GitHub Actions, GitLab CI, nginx, Apache, Caddy, Traefik, HAProxy, Envoy, sshd, systemd, PHP, PostgreSQL, MySQL, MongoDB and Redis configuration — and committed credentials |
+          | \`qalqon host\` | the defence settings of the machine this binary runs on — Defender, firewall, RDP and SMB versions, service paths, autorun entries — strictly read-only |
+          | \`qalqon report . -framework cis-docker\` | the same scan scored as a checklist against a framework embedded in the binary |
           | \`qalqon deps .\` | known vulnerabilities in the versions your manifests pin, via [osv.dev](https://osv.dev) |
           | \`qalqon history .\` | secrets in commits, not only in the files that are there now |
           | \`qalqon target host\` | security headers, cookie flags and TLS posture of a host you run |
           | \`qalqon templates\` | every rule that would run |
+
+          ### Findings that fix themselves on request
+
+          Fifty rules declare the deterministic change that ends the finding —
+          the directive to flip, the line to delete, the binding to narrow.
+          \`qalqon scan . -fix\` shows each one as a unified diff and writes
+          nothing. With \`-apply\`, each file is backed up first, the rule is
+          re-run afterwards to verify, and anything the rule still fires on is
+          rolled back before the command returns.
+
+          Windows binaries are first-class: line endings, case-insensitive file
+          names and \`~\` in path arguments are all handled the way the platform
+          behaves, and CI runs the full test suite on Windows runners.
 
           Deleting a credential in a later commit does not remove it — it is still
           in every clone — which is why \`history\` exists and reports the commit

@@ -111,6 +111,43 @@ jobs:
       - name: Templates all load
         run: ./qalqon templates
 
+      # The report is the same scan plus a control mapping, so it has to be
+      # exercisable where it will be read from CI: a failed control exits 1,
+      # and the clean fixtures have to score no failure at all.
+      - name: Compliance report verdicts
+        run: |
+          ./qalqon report testdata/clean -framework cis-docker
+          if ./qalqon report testdata/vulnerable -framework cis-docker >/dev/null; then
+            echo "::error::the vulnerable fixtures passed every cis-docker control"
+            exit 1
+          fi
+
+      # The fix engine's contract against a real tree: the counts before and
+      # after an apply, where fifty rules end their finding deterministically,
+      # so the number afterwards has to be strictly smaller. The apply run
+      # itself still exits 1 because findings remain — that is the -fail-on
+      # contract, not a failure — so only exit 2 (an error) is treated as one.
+      - name: Fix round trip
+        run: |
+          cp -r testdata/vulnerable /tmp/qalqon-fixtrip
+          # ../qalqon relative to the copy has to be a real binary: /tmp/qalqon
+          # is what the module would be named as a sibling of the fixtree.
+          cp qalqon /tmp/qalqon
+          cd /tmp/qalqon-fixtrip
+          before=$(../qalqon scan . -jsonl | wc -l)
+          code=0
+          ../qalqon scan . -fix -apply > /dev/null || code=$?
+          if [ "$code" -ne 0 ] && [ "$code" -ne 1 ]; then
+            echo "::error::applying the fixes failed with exit $code"
+            exit 1
+          fi
+          after=$(../qalqon scan . -jsonl | wc -l)
+          echo "findings: $before before, $after after the apply"
+          if [ "$after" -ge "$before" ]; then
+            echo "::error::applying the fixes did not reduce findings"
+            exit 1
+          fi
+
       # -list reads the manifests without contacting osv.dev, so this stays a
       # hermetic check: it proves the parsers and the command wiring work
       # without making the build depend on someone else's uptime.
