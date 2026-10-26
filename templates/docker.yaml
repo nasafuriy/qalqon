@@ -122,6 +122,10 @@ info:
     Set ownership with COPY --chown and use 0755 for executables, 0644 for
     data. Reach for 777 only when you have established nothing else works.
   tags: [docker, permissions, privilege]
+fix:
+  op: replace
+  find: '\bchmod\s+((?:-[a-zA-Z]+\s+)*)0?777\b'
+  replace: 'chmod ${1}755'
 files:
   - Dockerfile
   - Dockerfile.*
@@ -201,6 +205,9 @@ info:
   reference:
     - https://docs.docker.com/build/building/secrets/
   tags: [docker, secret, credential, key]
+fix:
+  op: delete-line
+  find: '(?im)^\s*(?:COPY|ADD)\s[^\n]*(?:id_rsa|id_dsa|id_ecdsa|id_ed25519|\.ssh/)'
 files:
   - Dockerfile
   - Dockerfile.*

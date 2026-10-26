@@ -32,6 +32,10 @@ matchers:
       - '(?im)^\s*ssl_protocols[^;\n]*\bSSLv[23]\b'
       - '(?im)^\s*ssl_protocols[^;\n]*\bTLSv1\.1\b'
       - '(?im)^\s*ssl_protocols[^;\n]*\bTLSv1[^.\d]'
+fix:
+  op: replace
+  find: '(?im)^([ \t]*)ssl_protocols\b[^\n]*$'
+  replace: '${1}ssl_protocols TLSv1.2 TLSv1.3;'
 
 ---
 
@@ -66,6 +70,10 @@ matchers:
   - type: absent
     patterns:
       - '(?i)Strict-Transport-Security'
+fix:
+  op: insert-after
+  find: '(?im)^[ \t]*listen[^;#\n]*\bssl\b[^;#\n]*;'
+  replace: 'add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;'
 
 ---
 
@@ -92,6 +100,10 @@ matchers:
   - type: absent
     patterns:
       - '(?im)^\s*server_tokens\s+off\s*;'
+fix:
+  op: insert-after
+  find: '(?im)^([ \t]*)server\s*\{[ \t]*$'
+  replace: 'server_tokens off;'
 
 ---
 
@@ -116,6 +128,10 @@ matchers:
   - type: regex
     patterns:
       - '(?im)^\s*autoindex\s+on\s*;'
+fix:
+  op: replace
+  find: '(?im)^([ \t]*)autoindex\s+on\b[^\n]*$'
+  replace: '${1}autoindex off;'
 
 ---
 
@@ -147,6 +163,10 @@ matchers:
       is not immediately preceded by an exclamation mark
     patterns:
       - '(?im)^\s*ssl_ciphers[^;\n]*[:\s"]{1}(?:RC4|DES-CBC3|EXPORT|aNULL|eNULL|NULL-MD5|ADH)\b'
+fix:
+  op: replace
+  find: '(?im)^([ \t]*)ssl_ciphers\b[^\n]*$'
+  replace: '${1}ssl_ciphers HIGH:!aNULL:!MD5:!RC4:!DES:!EXPORT:!3DES;'
 
 ---
 
@@ -206,3 +226,7 @@ matchers:
   - type: absent
     patterns:
       - '(?im)^\s*proxy_set_header\s+Host\b'
+fix:
+  op: insert-after
+  find: '(?im)^[ \t]*proxy_pass\s+\S+;'
+  replace: 'proxy_set_header Host $host;'

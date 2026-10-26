@@ -20,6 +20,10 @@ matchers:
   - type: regex
     patterns:
       - '(?im)^\s*display_errors\s*=\s*(?:On|1|true|stdout)\b'
+fix:
+  op: replace
+  find: '(?im)^([ \t]*display_errors\s*=\s*)(?:On|1|true|stdout)\b[^\n]*$'
+  replace: '${1}Off'
 
 ---
 
@@ -40,6 +44,10 @@ matchers:
   - type: regex
     patterns:
       - '(?im)^\s*expose_php\s*=\s*(?:On|1|true)\b'
+fix:
+  op: replace
+  find: '(?im)^([ \t]*expose_php\s*=\s*)(?:On|1|true)\b[^\n]*$'
+  replace: '${1}Off'
 
 ---
 
@@ -63,6 +71,10 @@ matchers:
   - type: regex
     patterns:
       - '(?im)^\s*allow_url_include\s*=\s*(?:On|1|true)\b'
+fix:
+  op: replace
+  find: '(?im)^([ \t]*allow_url_include\s*=\s*)(?:On|1|true)\b[^\n]*$'
+  replace: '${1}Off'
 
 ---
 
@@ -113,6 +125,10 @@ matchers:
   - type: regex
     patterns:
       - '(?im)^\s*allow_url_fopen\s*=\s*(?:On|1|true|Yes)\s*$'
+fix:
+  op: replace
+  find: '(?im)^([ \t]*allow_url_fopen\s*=\s*)(?:On|1|true|Yes)\b'
+  replace: '${1}Off'
 
 ---
 
@@ -137,6 +153,10 @@ matchers:
   - type: regex
     patterns:
       - '(?im)^\s*cgi\.fix_pathinfo\s*=\s*(?:1|On|true)\s*$'
+fix:
+  op: replace
+  find: '(?im)^([ \t]*cgi\.fix_pathinfo\s*=\s*)(?:1|On|true)\b[^\n]*$'
+  replace: '${1}0'
 
 ---
 
@@ -160,6 +180,10 @@ matchers:
   - type: regex
     patterns:
       - '(?im)^\s*session\.cookie_httponly\s*=\s*(?:0|Off|false|)\s*$'
+fix:
+  op: replace
+  find: '(?im)^([ \t]*session\.cookie_httponly\s*=\s*)(?:0|Off|false)?[ \t]*$'
+  replace: '${1}1'
 
 ---
 
@@ -181,3 +205,7 @@ matchers:
   - type: regex
     patterns:
       - '(?im)^\s*session\.cookie_secure\s*=\s*(?:0|Off|false|)\s*$'
+fix:
+  op: replace
+  find: '(?im)^([ \t]*session\.cookie_secure\s*=\s*)(?:0|Off|false)?[ \t]*$'
+  replace: '${1}1'

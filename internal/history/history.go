@@ -256,6 +256,7 @@ func (w *walker) flush() {
 				Commit:      short(w.commit),
 				Author:      w.author,
 				Date:        w.date,
+				Fixable:     t.Fixable(),
 			})
 		}
 	}

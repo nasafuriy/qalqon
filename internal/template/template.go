@@ -59,6 +59,75 @@ func Severities() []Severity {
 	return []Severity{SeverityInfo, SeverityLow, SeverityMedium, SeverityHigh, SeverityCritical}
 }
 
+// Fix ops.
+const (
+	// FixReplace rewrites every substring matching Find with Replace.
+	FixReplace = "replace"
+	// FixInsertAfter inserts Replace on the line following every line
+	// matching Find. The inserted line inherits the matched line's leading
+	// whitespace, so Replace is written without its own indentation.
+	FixInsertAfter = "insert-after"
+	// FixInsertBefore inserts Replace on the line preceding every line
+	// matching Find, with the same indentation rule as insert-after.
+	FixInsertBefore = "insert-before"
+	// FixDeleteLine removes every line matching Find.
+	FixDeleteLine = "delete-line"
+	// FixRegistrySet writes one registry value (host templates, Windows).
+	FixRegistrySet = "registry-set"
+)
+
+// Fix is the change that ends a finding. File ops run on the whole file
+// content with RE2 — the same engine the matchers use, so a find pattern the
+// template compiled is one the matcher can evaluate too. Registry ops are
+// host fixes: they name one value under one key and are only ever applied
+// from an elevated process.
+type Fix struct {
+	Op      string `yaml:"op"`
+	Find    string `yaml:"find"`
+	Replace string `yaml:"replace"`
+
+	// Registry-set fields.
+	Hive          string `yaml:"hive"`
+	Path          string `yaml:"path"`
+	Value         string `yaml:"value"`
+	Data          string `yaml:"data"`
+	RequiresAdmin bool   `yaml:"requires_admin"`
+}
+
+// Fixable reports whether the template declares a fix at all.
+func (t *Template) Fixable() bool { return t.Fix != nil }
+
+// HostFix reports whether this is a registry fix rather than a file one.
+func (f *Fix) HostFix() bool { return f.Op == FixRegistrySet }
+
+func (f *Fix) validate(id string) error {
+	switch f.Op {
+	case FixReplace, FixInsertAfter, FixInsertBefore, FixDeleteLine:
+		if f.Find == "" {
+			return fmt.Errorf("%s: fix needs a find pattern", id)
+		}
+		if _, err := regexp.Compile(f.Find); err != nil {
+			return fmt.Errorf("%s: fix find %q: %w", id, f.Find, err)
+		}
+		if f.Op != FixReplace && f.Op != FixDeleteLine && f.Replace == "" {
+			return fmt.Errorf("%s: fix %s needs a replace line", id, f.Op)
+		}
+	case FixRegistrySet:
+		if f.Hive != "HKLM" && f.Hive != "HKCU" {
+			return fmt.Errorf("%s: fix hive must be HKLM or HKCU, got %q", id, f.Hive)
+		}
+		if f.Path == "" || f.Value == "" {
+			return fmt.Errorf("%s: fix needs a registry path and value", id)
+		}
+		if f.Data == "" {
+			return fmt.Errorf("%s: fix needs a data value to set", id)
+		}
+	default:
+		return fmt.Errorf("%s: unknown fix op %q (want replace, insert-after, insert-before, delete-line or registry-set)", id, f.Op)
+	}
+	return nil
+}
+
 // Info carries everything a human needs once a template fires.
 type Info struct {
 	Name        string   `yaml:"name"`
@@ -130,7 +199,6 @@ var ValidParts = []string{PartHeader, PartBody, PartStatus, PartTLS, PartURL}
 type Template struct {
 	ID   string `yaml:"id"`
 	Info Info   `yaml:"info"`
-
 	// Type selects what the rule runs against: "file" (default) or "http".
 	Type string `yaml:"type"`
 
@@ -150,6 +218,12 @@ type Template struct {
 	// Once reports a single finding per file, for rules about the file as a
 	// whole rather than about particular lines.
 	Once bool `yaml:"once"`
+
+	// Fix, when present, declares the safe deterministic change that ends
+	// the finding: a replacement in the file, or a registry value. Its
+	// presence alone only enables the dry-run diff — nothing changes on
+	// disk without an explicit request.
+	Fix *Fix `yaml:"fix"`
 
 	// Prefilter lists literal strings, any one of which must appear in the
 	// file before the regexes are run at all. A plain substring search is far
@@ -267,6 +341,12 @@ func (t *Template) Validate() error {
 			return fmt.Errorf("%s: prefilter entries cannot be empty", t.ID)
 		}
 		t.prefilter = append(t.prefilter, []byte(lit))
+	}
+
+	if t.Fix != nil {
+		if err := t.Fix.validate(t.ID); err != nil {
+			return err
+		}
 	}
 
 	for i := range t.Matchers {

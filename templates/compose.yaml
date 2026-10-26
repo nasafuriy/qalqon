@@ -14,6 +14,10 @@ info:
   reference:
     - https://docs.docker.com/reference/compose-file/services/#privileged
   tags: [docker, compose, privilege]
+fix:
+  op: replace
+  find: '(?im)^([ \t]*)privileged:\s*true\b[^\n]*$'
+  replace: '${1}privileged: false'
 files:
   - docker-compose.yml
   - docker-compose.yaml
@@ -42,6 +46,9 @@ info:
   reference:
     - https://docs.docker.com/engine/security/
   tags: [docker, compose, privilege, host]
+fix:
+  op: delete-line
+  find: '(?im)^[ \t]*-[ \t]*[^#\n]*docker\.sock[^#\n]*$'
 files:
   - docker-compose.yml
   - docker-compose.yaml
@@ -66,6 +73,9 @@ info:
     longer apply.
   remediation: Use the default bridge network and publish only the ports you need.
   tags: [docker, compose, network]
+fix:
+  op: delete-line
+  find: '(?im)^[ \t]*network_mode:[ \t]*["'']?host\b[^\n]*$'
 files:
   - docker-compose.yml
   - docker-compose.yaml
@@ -143,6 +153,9 @@ info:
     that the rest of the file assumes exists.
   remediation: Remove the setting unless this really is a monitoring agent, and then run it outside the container.
   tags: [compose, docker, isolation]
+fix:
+  op: delete-line
+  find: '(?im)^[ \t]*(?:pid|ipc):[ \t]*["'']?host\b[^\n]*$'
 files:
   - docker-compose.yml
   - docker-compose.yaml
@@ -168,6 +181,9 @@ info:
     Grant only the specific capability the workload needs — usually
     NET_BIND_SERVICE — and drop the rest with cap_drop.
   tags: [compose, docker, privilege, least-privilege]
+fix:
+  op: delete-line
+  find: '(?im)^[ \t]*-[ \t]*["'']?(?:ALL|SYS_ADMIN|SYS_MODULE|SYS_PTRACE|NET_ADMIN|DAC_READ_SEARCH)["'']?[ \t]*$'
 files:
   - docker-compose.yml
   - docker-compose.yaml
@@ -224,6 +240,10 @@ info:
   reference:
     - https://docs.docker.com/compose/networking/
   tags: [compose, docker, database, exposure, network]
+fix:
+  op: replace
+  find: '(?im)^([ \t]*-[ \t]*["'']?)((?:3306|5432|27017|6379|9200|5672|11211|1433)\s*:\s*\d+)(["'']?)[ \t]*$'
+  replace: '${1}127.0.0.1:$2$3'
 files:
   - docker-compose.yml
   - docker-compose.yaml

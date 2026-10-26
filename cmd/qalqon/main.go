@@ -24,6 +24,7 @@ import (
 	"github.com/nasafuriy/qalqon"
 	"github.com/nasafuriy/qalqon/internal/deps"
 	"github.com/nasafuriy/qalqon/internal/engine"
+	"github.com/nasafuriy/qalqon/internal/fix"
 	"github.com/nasafuriy/qalqon/internal/history"
 	"github.com/nasafuriy/qalqon/internal/host"
 	"github.com/nasafuriy/qalqon/internal/output"
@@ -158,6 +159,13 @@ func scan(args []string, stdout, stderr io.Writer) int {
 	asSARIF := fs.Bool("sarif", false, "write SARIF 2.1.0 for GitHub code scanning")
 	outPath := fs.String("o", "", "write output to a file instead of stdout")
 
+	// -fix renders the change the rules declare; nothing is written by
+	// default. -apply is the explicit second step, and both must be given
+	// together, because a flag pair that silently writes on one flag is how
+	// CI runs drift into mutating trees.
+	asFix := fs.Bool("fix", false, "show the fix each rule declares, as a unified diff (writes nothing)")
+	asApply := fs.Bool("apply", false, "with -fix: write the fixes after backing up, verify by re-scan, roll back what fails")
+
 	quiet := fs.Bool("quiet", false, "findings only, no header or summary")
 	stats := fs.Bool("stats", false, "print scan throughput")
 	noColor := fs.Bool("no-color", false, "disable ANSI colour")
@@ -245,8 +253,23 @@ func scan(args []string, stdout, stderr io.Writer) int {
 	}
 
 	if strings.EqualFold(*failOn, "none") || len(findings) == 0 {
+		// That a fix-only invocation found nothing to do is success.
 		return exitOK
 	}
+
+	// -fix renders what the rules would change; -apply is the explicit
+	// second half, and it refuses to exist without -fix, so an accidental
+	// flag can not become a tree mutation.
+	if *asApply && !*asFix {
+		fmt.Fprintln(stderr, "qalqon: -apply needs -fix; nothing was changed")
+		return exitError
+	}
+	if *asFix {
+		if code := runFixUpward(set, root, findings, *asApply, stdout, stderr); code != exitOK {
+			return code
+		}
+	}
+
 	threshold, err := template.ParseSeverity(*failOn)
 	if err != nil {
 		fmt.Fprintf(stderr, "qalqon: %v\n", err)
@@ -256,6 +279,61 @@ func scan(args []string, stdout, stderr io.Writer) int {
 		return exitFindings
 	}
 	return exitOK
+}
+
+// runFix prints (and, with -apply, carries out) the fixes the rules declare
+// for these findings. Host fixes live only in `qalqon host`; a file fix
+// needs a file.
+func runFixUpward(set *template.Set, root string, findings []engine.Finding, apply bool, stdout, stderr io.Writer) int {
+	var targets []fix.Target
+	for _, f := range findings {
+		tpl := byTemplateID(set, f.TemplateID)
+		if tpl == nil || !tpl.Fixable() || f.File == "" || tpl.Fix.HostFix() {
+			continue
+		}
+		targets = append(targets, fix.Target{File: f.File, TemplateID: f.TemplateID})
+	}
+	if len(targets) == 0 {
+		fmt.Fprintln(stderr, "qalqon: none of these findings declare a fix")
+		return exitError
+	}
+
+	results := fix.Collect(fix.New(fix.Options{
+		Apply: apply,
+		Root:  root,
+	}).Run(set, targets))
+
+	passes := 0
+	for _, r := range results {
+		switch r.Status {
+		case fix.StatusDryRun:
+			fmt.Fprintf(stdout, "%s  — would change (dry run, nothing written):\n%s\n",
+				r.File, strings.TrimRight(r.Diff, "\n"))
+			passes++
+		case fix.StatusApplied:
+			fmt.Fprintf(stdout, "%s  — applied, verified by re-scan:\n%s\n",
+				r.File, strings.TrimRight(r.Diff, "\n"))
+			passes++
+		case fix.StatusRolledBack:
+			fmt.Fprintf(stderr, "qalqon: %s: rolled back — %s\n", r.File, r.Reason)
+		case fix.StatusSkipped:
+			fmt.Fprintf(stderr, "qalqon: %s: skipped — %s\n", r.File, r.Reason)
+		}
+	}
+	if apply {
+		fmt.Fprintf(stdout, "\n%d fix(es) applied.\n", passes)
+	}
+	return exitOK
+}
+
+// byTemplateID finds the template a finding came from.
+func byTemplateID(set *template.Set, id string) *template.Template {
+	for _, tpl := range set.Templates {
+		if tpl.ID == id {
+			return tpl
+		}
+	}
+	return nil
 }
 
 // discoverTargets turns a list of hosts into a list of URLs to probe, by
@@ -1277,6 +1355,15 @@ SCAN FLAGS
   -hidden           also scan dot-directories
   -c N              workers (default: one per CPU)
   -max-size N       skip files larger than N bytes
+  -fix              show the fix each rule declares as a unified diff; writes nothing
+  -apply            with -fix: back up, write, re-scan to verify, roll back on miss
+
+  Rules that carry a fix block support -fix and -apply. DRY-RUN BY DEFAULT:
+  the diff is the output until -apply is passed alongside. Every changed
+  file is backed up to .qalqon-backups/<timestamp>/ before it is written and
+  the originating rule is re-run against the result; a fix that did not end
+  its finding is rolled back immediately. .git, binaries and oversized files
+  are never touched.
 
 OUTPUT
   -json             a JSON report

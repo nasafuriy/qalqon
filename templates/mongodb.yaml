@@ -44,6 +44,9 @@ matchers:
     patterns:
       - '(?im)^\s*bindIp\s*:\s*["'']?0\.0\.0\.0'
       - '(?im)^\s*bindIpAll\s*:\s*true\b'
+fix:
+  op: delete-line
+  find: '(?im)^[ \t]*(?:(?:bindIp[ \t]*:[ \t]*["'']?)0\.0\.0\.0|bindIpAll[ \t]*:[ \t]*true)\b'
 
 ---
 

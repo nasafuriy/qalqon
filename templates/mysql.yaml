@@ -24,6 +24,9 @@ matchers:
   - type: regex
     patterns:
       - '(?im)^\s*skip[-_]grant[-_]tables\b'
+fix:
+  op: delete-line
+  find: '(?im)^[ \t]*skip[-_]grant[-_]tables\b'
 
 ---
 
@@ -77,6 +80,10 @@ matchers:
   - type: regex
     patterns:
       - '(?im)^\s*local[-_]infile\s*=\s*(?:1|on|true)\b'
+fix:
+  op: replace
+  find: '(?im)^([ \t]*local[-_]infile\s*=\s*)(?:1|on|true)\b[^\n]*$'
+  replace: '${1}0'
 
 ---
 
@@ -104,3 +111,7 @@ matchers:
   - type: regex
     patterns:
       - '(?im)^\s*bind[-_]address\s*=\s*(?:0\.0\.0\.0|\*|::)\s*$'
+fix:
+  op: replace
+  find: '(?im)^([ \t]*bind[-_]address\s*=\s*)(?:0\.0\.0\.0|\*|::)[ \t]*$'
+  replace: '${1}127.0.0.1'

@@ -24,6 +24,10 @@ matchers:
       after Options
     patterns:
       - '(?im)^\s*Options\s+[^\n-]*\bIndexes\b'
+fix:
+  op: replace
+  find: '(?im)^([ \t]*Options[ \t]+(?:\S+[ \t]*)*?)\+?Indexes\b'
+  replace: '${1}-Indexes'
 
 ---
 
@@ -44,7 +48,35 @@ matchers:
   - type: regex
     patterns:
       - '(?im)^\s*ServerTokens\s+(?:Full|OS|Minor|Minimal|Major)\b'
+fix:
+  op: replace
+  find: '(?im)^([ \t]*ServerTokens\s+)(?:Full|OS|Minor|Minimal|Major)\b[^\n]*$'
+  replace: '${1}Prod'
+
+---
+
+id: apache-server-signature-on
+info:
+  name: Apache signature shown in error pages
+  severity: low
+  description: >-
+    ServerSignature On adds a footer with the httpd version to every generated
+    page, which is the same free version disclosure that ServerTokens Prod is
+    written to remove.
+  remediation: 'Set "ServerSignature Off".'
+  tags: [apache, httpd, disclosure]
+files:
+  - httpd.conf
+  - apache2.conf
+  - conf.d/*.conf
+matchers:
+  - type: regex
+    patterns:
       - '(?im)^\s*ServerSignature\s+On\b'
+fix:
+  op: replace
+  find: '(?im)^([ \t]*ServerSignature\s+)On\b[^\n]*$'
+  replace: '${1}Off'
 
 ---
 
@@ -72,6 +104,10 @@ matchers:
     patterns:
       - '(?im)^\s*SSLProtocol[^\n]*\+\s*(?:SSLv[23]|TLSv1\.1|TLSv1[^.\d])'
       - '(?im)^\s*SSLProtocol\s+all\s*$'
+fix:
+  op: replace
+  find: '(?im)^([ \t]*)SSLProtocol\b[^\n]*$'
+  replace: '${1}SSLProtocol -all +TLSv1.2 +TLSv1.3'
 
 ---
 
@@ -92,6 +128,10 @@ matchers:
   - type: regex
     patterns:
       - '(?im)^\s*TraceEnable\s+On\b'
+fix:
+  op: replace
+  find: '(?im)^([ \t]*)TraceEnable\s+On\b[^\n]*$'
+  replace: '${1}TraceEnable Off'
 
 ---
 
@@ -115,6 +155,10 @@ matchers:
   - type: regex
     patterns:
       - '(?im)^\s*AllowOverride\s+All\b'
+fix:
+  op: replace
+  find: '(?im)^([ \t]*AllowOverride\s+)All\b[^\n]*$'
+  replace: '${1}None'
 
 ---
 
@@ -175,6 +219,10 @@ matchers:
   - type: absent
     patterns:
       - '(?i)Strict-Transport-Security'
+fix:
+  op: insert-after
+  find: '(?im)^[ \t]*SSLEngine[ \t]+on\b'
+  replace: 'Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains"'
 
 ---
 

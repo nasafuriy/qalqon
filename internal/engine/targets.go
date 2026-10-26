@@ -181,6 +181,7 @@ func targetFinding(t *template.Template, result *probe.Result, line int, part, m
 		Part:        part,
 		Line:        line,
 		Match:       truncate(match, 160),
+		Fixable:     t.Fixable(),
 	}
 }
 

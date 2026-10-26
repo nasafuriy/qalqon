@@ -264,6 +264,7 @@ func hostFinding(t *template.Template, part string, line int, match string) engi
 		Part:        part,
 		Line:        line,
 		Match:       truncate(match, 160),
+		Fixable:     t.Fixable(),
 	}
 }
 

@@ -25,6 +25,10 @@ matchers:
   - type: regex
     patterns:
       - '(?im)^\s*PermitRootLogin\s+(?:yes|without-password)\b'
+fix:
+  op: replace
+  find: '(?im)^([ \t]*PermitRootLogin\s+)(?:yes|without-password)\b[^\n]*$'
+  replace: '${1}no'
 
 ---
 
@@ -47,6 +51,10 @@ matchers:
   - type: regex
     patterns:
       - '(?im)^\s*PasswordAuthentication\s+yes\b'
+fix:
+  op: replace
+  find: '(?im)^([ \t]*PasswordAuthentication\s+)yes\b[^\n]*$'
+  replace: '${1}no'
 
 ---
 
@@ -67,6 +75,10 @@ matchers:
   - type: regex
     patterns:
       - '(?im)^\s*PermitEmptyPasswords\s+yes\b'
+fix:
+  op: replace
+  find: '(?im)^([ \t]*PermitEmptyPasswords\s+)yes\b[^\n]*$'
+  replace: '${1}no'
 
 ---
 
@@ -87,6 +99,10 @@ matchers:
   - type: regex
     patterns:
       - '(?im)^\s*X11Forwarding\s+yes\b'
+fix:
+  op: replace
+  find: '(?im)^([ \t]*X11Forwarding\s+)yes\b[^\n]*$'
+  replace: '${1}no'
 
 ---
 
@@ -114,6 +130,10 @@ matchers:
     patterns:
       - '(?im)^\s*Ciphers[^\n]*(?:arcfour|3des|-cbc)'
       - '(?im)^\s*MACs[^\n]*(?:hmac-md5|-96\b)'
+fix:
+  op: delete-line
+  find: '(?im)^[ \t]*(?:Ciphers|MACs)[ \t]+'
+  replace: ''
 
 ---
 
@@ -135,6 +155,10 @@ matchers:
   - type: regex
     patterns:
       - '(?im)^\s*Protocol\s+.*\b1\b'
+fix:
+  op: delete-line
+  find: '(?im)^[ \t]*Protocol\b'
+  replace: ''
 
 ---
 
@@ -158,6 +182,10 @@ matchers:
   - type: regex
     patterns:
       - '(?im)^\s*PermitUserEnvironment\s+yes\b'
+fix:
+  op: replace
+  find: '(?im)^([ \t]*PermitUserEnvironment\s+)yes\b[^\n]*$'
+  replace: '${1}no'
 
 ---
 
@@ -179,6 +207,10 @@ matchers:
   - type: regex
     patterns:
       - '(?im)^\s*StrictModes\s+no\b'
+fix:
+  op: replace
+  find: '(?im)^([ \t]*StrictModes\s+)no\b[^\n]*$'
+  replace: '${1}yes'
 
 ---
 
@@ -200,6 +232,10 @@ matchers:
   - type: regex
     patterns:
       - '(?im)^\s*GatewayPorts\s+(?:yes|clientspecified)\b'
+fix:
+  op: replace
+  find: '(?im)^([ \t]*GatewayPorts\s+)(?:yes|clientspecified)\b[^\n]*$'
+  replace: '${1}no'
 
 ---
 
@@ -224,3 +260,7 @@ matchers:
   - type: regex
     patterns:
       - '(?im)^\s*AllowAgentForwarding\s+yes\b'
+fix:
+  op: replace
+  find: '(?im)^([ \t]*AllowAgentForwarding\s+)yes\b[^\n]*$'
+  replace: '${1}no'

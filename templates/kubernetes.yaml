@@ -17,6 +17,10 @@ info:
   reference:
     - https://kubernetes.io/docs/concepts/security/pod-security-standards/
   tags: [kubernetes, k8s, privilege]
+fix:
+  op: replace
+  find: '(?im)^([ \t]*)privileged:\s*true\b[^\n]*$'
+  replace: '${1}privileged: false'
 files:
   - "*.yaml"
   - "*.yml"
@@ -46,6 +50,10 @@ info:
   reference:
     - https://kubernetes.io/docs/tasks/configure-pod-container/security-context/
   tags: [kubernetes, k8s, privilege]
+fix:
+  op: replace
+  find: '(?im)^([ \t]*)allowPrivilegeEscalation:\s*true\b[^\n]*$'
+  replace: '${1}allowPrivilegeEscalation: false'
 files:
   - "*.yaml"
   - "*.yml"
@@ -71,6 +79,9 @@ info:
     node; with hostNetwork it binds straight onto node interfaces.
   remediation: Remove the host namespace flags unless the workload is a node agent that genuinely needs them.
   tags: [kubernetes, k8s, isolation]
+fix:
+  op: delete-line
+  find: '(?im)^[ \t]*host(?:Network|PID|IPC):[ \t]*["'']?true\b[^\n]*$'
 files:
   - "*.yaml"
   - "*.yml"

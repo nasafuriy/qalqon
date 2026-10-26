@@ -44,6 +44,9 @@ type Finding struct {
 	Commit string `json:"commit,omitempty"`
 	Author string `json:"author,omitempty"`
 	Date   string `json:"date,omitempty"`
+	// Fixable reports that the rule declares a fix block, so -fix can
+	// render the change that ends this finding.
+	Fixable bool `json:"fixable,omitempty"`
 }
 
 // Where names the thing a finding is about, whichever mode produced it.
@@ -314,6 +317,7 @@ func newFinding(t *template.Template, file string, line, col int, match string) 
 		Line:        line,
 		Column:      col,
 		Match:       truncate(match, 160),
+		Fixable:     t.Fixable(),
 	}
 }
 

@@ -1,13 +1,17 @@
 package qalqon_test
 
 import (
+	"bytes"
 	"context"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
 
 	"github.com/nasafuriy/qalqon"
 	"github.com/nasafuriy/qalqon/internal/engine"
+	"github.com/nasafuriy/qalqon/internal/fix"
 	"github.com/nasafuriy/qalqon/internal/template"
 )
 
@@ -213,6 +217,7 @@ func TestVulnerableFixturesAreDetected(t *testing.T) {
 			"apache-allow-override-all",
 			"apache-directory-listing",
 			"apache-missing-hsts",
+			"apache-server-signature-on",
 			"apache-server-status-exposed",
 			"apache-server-tokens-verbose",
 			"apache-trace-method",
@@ -420,6 +425,65 @@ func TestScanningASingleFileWorks(t *testing.T) {
 // scanned file with \r\n. Line endings are folded once at read time, so the
 // same content with CRLF endings must produce exactly the same findings —
 // and the clean CRLF fixture must stay quiet with the rest of the tree.
+// A fix that leaves its rule firing is worse than no fix at all: it shows a
+// diff, the user applies it, and the finding comes back on the next scan. So
+// for every fixable rule that fires on the vulnerable tree, the declared fix
+// is applied to the fixture in memory and the rule must go quiet. Overlapping
+// rules are allowed to keep firing — each fix verifies its own finding.
+func TestEveryDeclaredFixSilencesItsRule(t *testing.T) {
+	byID := map[string]*template.Template{}
+	for _, tpl := range builtin(t).Templates {
+		byID[tpl.ID] = tpl
+	}
+
+	checked := map[string]bool{}
+	for _, f := range scan(t, "testdata/vulnerable") {
+		tpl := byID[f.TemplateID]
+		if tpl == nil || tpl.Fix == nil || tpl.Fix.HostFix() || checked[f.TemplateID] {
+			continue
+		}
+		checked[f.TemplateID] = true
+
+		raw, err := os.ReadFile(filepath.Join("testdata", "vulnerable", filepath.FromSlash(f.File)))
+		if err != nil {
+			t.Fatalf("%s: fixture %q disappeared: %v", f.TemplateID, f.File, err)
+		}
+		// The scan folds CRLF at read time and the fix engine patches the
+		// folded content, so the test does the same.
+		content := bytes.ReplaceAll(raw, []byte("\r\n"), []byte("\n"))
+
+		patched, err := fix.Patch(tpl.Fix, content)
+		if err != nil {
+			t.Fatalf("%s: patch failed: %v", f.TemplateID, err)
+		}
+		if bytes.Equal(patched, content) {
+			t.Errorf("%s: fix changes nothing on %s", f.TemplateID, f.File)
+			continue
+		}
+		if tpl.MayMatch(patched) {
+			if _, still := tpl.Match(patched); still {
+				t.Errorf("%s: rule still matches %s after its own fix", f.TemplateID, f.File)
+			}
+		}
+	}
+}
+
+// Rules that need a value the tool cannot invent — the real password, the
+// real pinned version, the real certificate holder — deliberately carry no
+// fix: a fabricated value would be a broken file, not a fix. Thirty is the
+// floor of the shipped library, not a decorative number.
+func TestFixLibraryCoversAtLeastThirtyFileTemplates(t *testing.T) {
+	count := 0
+	for _, tpl := range builtin(t).OfKind(template.KindFile).Templates {
+		if tpl.Fixable() && !tpl.Fix.HostFix() {
+			count++
+		}
+	}
+	if count < 30 {
+		t.Fatalf("only %d file templates declare a safe fix; the accepted library floor is 30", count)
+	}
+}
+
 func TestCRLFContentProducesTheSameFindings(t *testing.T) {
 	idsFor := func(findings []engine.Finding) map[string]bool {
 		out := map[string]bool{}

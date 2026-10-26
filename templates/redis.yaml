@@ -78,6 +78,10 @@ matchers:
   - type: regex
     patterns:
       - '(?im)^\s*protected-mode\s+no\s*$'
+fix:
+  op: replace
+  find: '(?im)^([ \t]*protected-mode\s+)no\b[^\n]*$'
+  replace: '${1}yes'
 
 ---
 
@@ -99,3 +103,7 @@ matchers:
   - type: regex
     patterns:
       - '(?im)^\s*bind\s+(?:0\.0\.0\.0|\*)(?:\s|$)'
+fix:
+  op: replace
+  find: '(?im)^([ \t]*bind\s+)(?:0\.0\.0\.0|\*)(\s?)$'
+  replace: '${1}127.0.0.1$2'
