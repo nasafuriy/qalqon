@@ -1,0 +1,55 @@
+# Static mapping of the CIS Kubernetes Benchmark and the Kubernetes Pod
+# Security Standards onto qalqon's manifest rules.
+#
+# The benchmark's cluster-level, node-level and RBAC-runtime sections need a
+# live API server; what a manifest tree can answer is workload hardening and
+# the RBAC declarations it can read. That is what is mapped here. Control
+# ids are local to this file; the title names the benchmark intent.
+
+framework: cis-kubernetes
+title: CIS Kubernetes Benchmark (static, manifest subset)
+controls:
+  - id: C1
+    title: Ensure pods never run privileged or escalate privileges
+    rules: [k8s-privileged-container, k8s-allow-privilege-escalation]
+
+  - id: C2
+    title: Ensure containers drop capabilities and never run as root
+    rules: [k8s-capabilities-not-dropped, k8s-container-runs-as-root]
+
+  - id: C3
+    title: Ensure container root filesystems are immutable at runtime
+    rules: [k8s-writable-root-filesystem]
+
+  - id: C4
+    title: Ensure host namespaces and hostPath volumes are not shared into pods
+    rules: [k8s-host-namespace, k8s-host-path-volume]
+
+  - id: C5
+    title: Ensure service account tokens are not automounted without need
+    rules: [k8s-service-account-token-automounted]
+
+  - id: C6
+    title: Ensure containers declare resource limits
+    rules: [k8s-missing-resource-limits]
+
+  - id: C7
+    title: Ensure RBAC grants only the verbs and resources that are needed
+    rules: [k8s-rbac-wildcard-permissions, k8s-cluster-admin-binding]
+
+  - id: C8
+    title: Ensure Ingresses terminate TLS rather than serving plaintext
+    rules: [k8s-ingress-without-tls]
+
+  - id: C9
+    title: Ensure workload images are pinned to immutable versions
+    rules: [k8s-image-latest-tag]
+
+  - id: C10
+    title: Ensure Helm values keep every container guarantee the manifest rules demand
+    rules:
+      - helm-values-privileged-container
+      - helm-values-host-namespace
+      - helm-values-image-tag-latest
+      - helm-values-hardcoded-credential
+      - helm-chart-dependency-unpinned

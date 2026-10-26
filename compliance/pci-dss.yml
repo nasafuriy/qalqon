@@ -1,0 +1,101 @@
+# Partial static mapping of PCI DSS onto qalqon's rules.
+#
+# PCI DSS controls are assessed on running environments, not on source
+# trees, so this is not a certification claim — it is the subset an
+# automated scan of a configuration tree can contribute evidence for,
+# arranged under the requirement numbers whose topic it belongs to. Where a
+# transaction system is not present in the tree at all, the requirements
+# score REVIEW rather than auto-PASS.
+#
+# Requirement ids follow PCI DSS v4.x numbering; the titles name the intent
+# mapped here.
+
+framework: pci-dss
+title: PCI DSS (static configuration evidence, Requirements 2, 4, 6 and 8)
+controls:
+  - id: "2"
+    title: "Requirement 2 — no component discloses its software version to the network"
+    rules:
+      - nginx-server-tokens-on
+      - apache-server-tokens-verbose
+      - apache-server-signature-on
+      - php-expose-php-enabled
+
+  - id: "2b"
+    title: "Requirement 2 (hardening) — insecure defaults are turned off: directory listings, debug output and dangerous runtime functions"
+    rules:
+      - nginx-autoindex-enabled
+      - apache-directory-listing
+      - caddy-directory-listing
+      - php-display-errors-enabled
+      - php-dangerous-functions-enabled
+      - mysql-local-infile-enabled
+      - redis-protected-mode-disabled
+
+  - id: "4"
+    title: "Requirement 4 — services do not accept weak or absent TLS"
+    rules:
+      - nginx-weak-tls-protocols
+      - nginx-weak-ssl-ciphers
+      - apache-weak-ssl-protocols
+      - apache-weak-ssl-ciphers
+      - haproxy-weak-tls-version
+      - envoy-weak-tls-version
+      - traefik-weak-tls-version
+      - postgres-ssl-disabled
+      - mongodb-tls-disabled
+      - k8s-ingress-without-tls
+      - caddy-auto-https-disabled
+  - id: "4b"
+    title: "Requirement 4 (remote access) — administrative access is not served by obsolete SSH protocols or ciphers"
+    rules:
+      - sshd-protocol-1
+      - sshd-weak-ciphers
+      - sshd-x11-forwarding
+
+  - id: "6"
+    title: "Requirement 6 (secrets) — credentials and keys never enter source control"
+    rules:
+      - hardcoded-credential-assignment
+      - private-key-committed
+      - aws-access-key-id
+      - provider-token-committed
+      - connection-string-with-password
+      - gcp-service-account-key
+      - slack-webhook-committed
+      - stripe-live-key
+      - jwt-token-committed
+      - env-file-committed
+      - compose-hardcoded-password
+      - mysql-plaintext-password-in-config
+      - helm-values-hardcoded-credential
+      - terraform-hardcoded-credential
+      - cfn-hardcoded-credential
+      - gitlab-ci-hardcoded-credential
+
+  - id: "6b"
+    title: "Requirement 6 (development) — the pipeline never downloads or executes untrusted content"
+    rules:
+      - actions-script-injection
+      - actions-pull-request-target-checkout
+      - actions-self-hosted-on-public-trigger
+      - actions-workflow-run-untrusted-checkout
+      - actions-curl-pipe-shell
+      - gitlab-ci-curl-pipe-shell
+      - actions-secrets-inherit
+      - actions-secret-echoed
+      - actions-excessive-token-permissions
+
+  - id: "8"
+    title: "Requirement 8 — systems that require authentication never accept blank, default or trust-based access"
+    rules:
+      - redis-no-authentication
+      - redis-default-password
+      - mongodb-authorization-disabled
+      - postgres-trust-authentication
+      - mysql-skip-grant-tables
+      - sshd-empty-passwords
+      - sshd-permit-root-login
+      - sshd-password-authentication
+      - php-session-cookie-not-secure
+      - php-session-cookie-not-httponly

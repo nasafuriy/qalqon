@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/nasafuriy/qalqon"
+	"github.com/nasafuriy/qalqon/internal/compliance"
 	"github.com/nasafuriy/qalqon/internal/deps"
 	"github.com/nasafuriy/qalqon/internal/engine"
 	"github.com/nasafuriy/qalqon/internal/fix"
@@ -29,6 +30,7 @@ import (
 	"github.com/nasafuriy/qalqon/internal/host"
 	"github.com/nasafuriy/qalqon/internal/output"
 	"github.com/nasafuriy/qalqon/internal/probe"
+	"github.com/nasafuriy/qalqon/internal/report"
 	"github.com/nasafuriy/qalqon/internal/template"
 )
 
@@ -75,6 +77,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return scanHistory(rest, stdout, stderr)
 	case "host":
 		return hostAudit(rest, stdout, stderr)
+	case "report":
+		return reportCmd(rest, stdout, stderr)
 	default:
 		// Allow "qalqon ." as shorthand for "qalqon scan .".
 		if strings.HasPrefix(command, "-") || fileish(command) {
@@ -388,7 +392,150 @@ func discoverTargets(hosts []string, spec string, timeout time.Duration,
 	return out, nil
 }
 
-/* ------------------------------------------------------------------ host */
+/* --------------------------------------------------------------- reporting */
+
+// reportCmd scores a scan against one published framework and renders the
+// checklist: PASS where the mapped rules ran and stayed quiet, FAIL where
+// they fired, REVIEW where nothing in the tree applies to them.
+//
+// The scan is an ordinary file scan — same library, same walk, same
+// filters — so a report and a scan of the same tree always agree.
+func reportCmd(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("report", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+
+	frameworkID := fs.String("framework", "", "framework to score: cis-docker, cis-kubernetes or pci-dss")
+	asHTML := fs.String("html", "", "also write a standalone HTML report to this path")
+	asJSON := fs.Bool("json", false, "write the assessment as JSON")
+	outPath := fs.String("o", "", "write to this file instead of stdout")
+	stats := fs.Bool("stats", false, "print scan timing")
+	concurrency := fs.Int("c", 0, "worker count (default: one per CPU)")
+
+	var dirs stringList
+	fs.Var(&dirs, "t", "extra template directory (repeatable)")
+	var exclude stringList
+	fs.Var(&exclude, "exclude", "skip paths matching these globs")
+	hidden := fs.Bool("hidden", false, "also walk dot-directories")
+
+	fs.Usage = func() { usage(stderr) }
+	if err := fs.Parse(reorder(fs, args)); err != nil {
+		return exitError
+	}
+
+	if *frameworkID == "" {
+		fmt.Fprintln(stderr, "qalqon: -framework is required")
+		return exitError
+	}
+
+	frames, errs := compliance.Load(qalqon.Compliance)
+	if len(errs) > 0 {
+		for _, err := range errs {
+			fmt.Fprintf(stderr, "qalqon: %v\n", err)
+		}
+		return exitError
+	}
+	var fw compliance.Framework
+	for _, f := range frames {
+		if strings.EqualFold(f.ID, *frameworkID) {
+			fw = f
+			break
+		}
+	}
+	if fw.ID == "" {
+		known := make([]string, 0, len(frames))
+		for _, f := range frames {
+			known = append(known, f.ID)
+		}
+		fmt.Fprintf(stderr, "qalqon: unknown framework %q (available: %s)\n",
+			*frameworkID, strings.Join(known, ", "))
+		return exitError
+	}
+
+	root := expandHome(".")
+	if fs.NArg() > 0 {
+		root = expandHome(fs.Arg(0))
+	}
+
+	set, code := loadTemplates(dirs, false, stderr)
+	if code != exitOK {
+		return code
+	}
+	fileSet := set.OfKind(template.KindFile)
+	if err := compliance.ValidateAgainst(fw, fileSet); err != nil {
+		fmt.Fprintf(stderr, "qalqon: %v\n", err)
+		return exitError
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	opts := engine.Options{
+		Root:        root,
+		Concurrency: *concurrency,
+		Exclude:     exclude,
+		Hidden:      *hidden,
+	}
+	findings, runStats, err := engine.Run(ctx, fileSet, opts)
+	if err != nil {
+		fmt.Fprintf(stderr, "qalqon: %v\n", err)
+		return exitError
+	}
+	files, err := engine.WalkFiles(ctx, opts)
+	if err != nil {
+		fmt.Fprintf(stderr, "qalqon: %v\n", err)
+		return exitError
+	}
+
+	res := compliance.Evaluate(fw, fileSet, findings, files)
+
+	sink := stdout
+	if *outPath != "" {
+		f, err := os.Create(expandHome(*outPath))
+		if err != nil {
+			fmt.Fprintf(stderr, "qalqon: %v\n", err)
+			return exitError
+		}
+		defer f.Close()
+		sink = f
+	}
+
+	if *asHTML != "" {
+		h, err := os.Create(expandHome(*asHTML))
+		if err != nil {
+			fmt.Fprintf(stderr, "qalqon: %v\n", err)
+			return exitError
+		}
+		err = report.HTML(h, res)
+		h.Close()
+		if err != nil {
+			fmt.Fprintf(stderr, "qalqon: %v\n", err)
+			return exitError
+		}
+		fmt.Fprintf(stdout, "report written to %s\n", *asHTML)
+	}
+
+	switch {
+	case *asJSON:
+		body, err := json.MarshalIndent(res, "", "  ")
+		if err != nil {
+			fmt.Fprintf(stderr, "qalqon: %v\n", err)
+			return exitError
+		}
+		fmt.Fprintln(sink, string(body))
+	default:
+		report.Text(sink, res)
+	}
+
+	if *stats {
+		fmt.Fprintf(sink, "read %d files (%d files walked) · %v\n",
+			runStats.FilesRead, runStats.FilesWalked, runStats.Duration)
+	}
+
+	if res.Failed > 0 {
+		return exitFindings
+	}
+	return exitOK
+}
 
 // hostAudit audits the machine the binary runs on: the Windows defenses the
 // registry records — Defender, firewall profiles, RDP, SMBv1, LSA, UAC,
@@ -1293,9 +1440,21 @@ USAGE
   qalqon deps <path> [flags]       check dependency versions against osv.dev
   qalqon history <path> [flags]    look for secrets in commits, not just files
   qalqon host [flags]              audit the machine this runs on (read-only)
+  qalqon report <path> [flags]     score a scan against a published framework
   qalqon templates [flags]         list the templates that would run
   qalqon validate <dir>            check your own templates parse
   qalqon version
+
+REPORT FLAGS
+  -framework ID     which framework to score: cis-docker, cis-kubernetes, pci-dss
+  -html FILE        write a standalone HTML report to FILE
+  -json             structured assessment (controls, statuses, score)
+
+  Each control maps onto the qalqon rules that test it: PASS where the rules
+  ran and stayed quiet, FAIL where they fired, REVIEW where the tree contains
+  nothing the rules apply to — a repo with no nginx in it is not rewarded for
+  it. Review controls are excluded from the score. Exit 1 when a control
+  failed, so the report drops into CI as-is.
 
 HOST FLAGS
   -probe LIST       run only these probes, e.g. -probe defender,firewall
@@ -1388,5 +1547,7 @@ EXAMPLES
   qalqon scan . -tags docker -stats
   qalqon scan . -sarif -o results.sarif
   qalqon scan . -t ./my-templates -fail-on high
+  qalqon report . -framework cis-docker -html report.html
+  qalqon report ./infra -framework pci-dss -json
 `, version)
 }

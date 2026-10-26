@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/nasafuriy/qalqon"
+	"github.com/nasafuriy/qalqon/internal/compliance"
 	"github.com/nasafuriy/qalqon/internal/engine"
 	"github.com/nasafuriy/qalqon/internal/fix"
 	"github.com/nasafuriy/qalqon/internal/template"
@@ -481,6 +482,60 @@ func TestFixLibraryCoversAtLeastThirtyFileTemplates(t *testing.T) {
 	}
 	if count < 30 {
 		t.Fatalf("only %d file templates declare a safe fix; the accepted library floor is 30", count)
+	}
+}
+
+// Framework documents ship inside the binary, so a mapping that names a rule
+// the library no longer has would score a broken check at every user.
+func TestEmbeddedFrameworksResolveAgainstTheLibrary(t *testing.T) {
+	fileSet := builtin(t).OfKind(template.KindFile)
+
+	frames, errs := compliance.Load(qalqon.Compliance)
+	if len(errs) != 0 {
+		t.Fatalf("embedded frameworks failed to load: %v", errs)
+	}
+	if len(frames) < 3 {
+		t.Fatalf("expected at least three embedded frameworks, got %d", len(frames))
+	}
+	for _, fw := range frames {
+		if err := compliance.ValidateAgainst(fw, fileSet); err != nil {
+			t.Errorf("%v", err)
+		}
+	}
+}
+
+// The scorer against the real fixture trees: the vulnerable tree must fail a
+// control in every framework, and the clean tree must fail none.
+func TestComplianceScoresTheFixtureTrees(t *testing.T) {
+	set := builtin(t)
+	fileSet := set.OfKind(template.KindFile)
+
+	for _, root := range []string{"testdata/vulnerable", "testdata/clean"} {
+		findings, _, err := engine.Run(context.Background(), fileSet, engine.Options{Root: root})
+		if err != nil {
+			t.Fatalf("%s: %v", root, err)
+		}
+		files, err := engine.WalkFiles(context.Background(), engine.Options{Root: root})
+		if err != nil {
+			t.Fatalf("%s: %v", root, err)
+		}
+
+		frames, _ := compliance.Load(qalqon.Compliance)
+		for _, fw := range frames {
+			res := compliance.Evaluate(fw, fileSet, findings, files)
+			if root == "testdata/vulnerable" && res.Failed == 0 {
+				t.Errorf("%s: no control failed on the vulnerable tree", fw.ID)
+			}
+			if root == "testdata/clean" && res.Failed > 0 {
+				for _, c := range res.Controls {
+					if c.Status == compliance.Fail {
+						for _, f := range c.Findings {
+							t.Errorf("%s: false compliance failure: %s → %s (via %s)", fw.ID, c.ID, f.Where(), f.TemplateID)
+						}
+					}
+				}
+			}
+		}
 	}
 }
 

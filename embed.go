@@ -8,3 +8,10 @@ import "embed"
 //
 //go:embed all:templates
 var Templates embed.FS
+
+// Compliance holds the shipped framework mappings, rooted at "compliance".
+// Each document maps published control topics onto rule ids, so a plain
+// scan can be scored as a checklist by `qalqon report`.
+//
+//go:embed all:compliance
+var Compliance embed.FS

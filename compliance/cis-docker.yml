@@ -1,0 +1,64 @@
+# Static mapping of the CIS Docker Engine Benchmark onto qalqon's rules.
+#
+# Only what a scan of a configuration tree can honestly answer is included:
+# build-time Dockerfile checks and compose service definitions. Controls
+# that require a running container or the Docker daemon (runtime CIS
+# sections, daemon-level settings) are out of scope here and simply not
+# listed — the tool never guesses about systems it cannot see.
+#
+# Control ids are local to this file; the title names the benchmark intent.
+
+framework: cis-docker
+title: CIS Docker Engine Benchmark (static, build-time subset)
+controls:
+  - id: C1
+    title: Ensure a user for the container has been created
+    rules: [docker-missing-user]
+
+  - id: C2
+    title: Ensure base images are pinned to immutable versions
+    rules: [docker-latest-tag, docker-untagged-base-image]
+
+  - id: C3
+    title: Ensure no secrets are stored in Dockerfiles
+    rules: [docker-secret-in-layer, docker-ssh-key-copied]
+
+  - id: C4
+    title: Ensure package installs are version-pinned
+    rules: [docker-apt-no-version-pin, docker-pip-no-version-pin]
+
+  - id: C5
+    title: Ensure downloaded scripts are not executed unverified in the build
+    rules: [docker-curl-pipe-shell]
+
+  - id: C6
+    title: Ensure no container image or service runs privileged
+    rules: [compose-privileged-container]
+
+  - id: C7
+    title: Ensure no container service grants sweeping Linux capabilities
+    rules: [compose-dangerous-capabilities]
+
+  - id: C8
+    title: Ensure services do not share host namespaces
+    rules: [compose-host-network, compose-host-pid-namespace]
+
+  - id: C9
+    title: Ensure the Docker socket is not mounted into containers
+    rules: [compose-docker-socket-mount]
+
+  - id: C10
+    title: Ensure database ports are not published wide open
+    rules: [compose-database-port-published]
+
+  - id: C11
+    title: Ensure no credentials are committed in compose files
+    rules: [compose-hardcoded-password]
+
+  - id: C12
+    title: Ensure compose images are pinned to immutable versions
+    rules: [compose-image-latest-tag]
+
+  - id: C13
+    title: Ensure container files and volumes keep sane ownership
+    rules: [docker-chmod-world-writable]
