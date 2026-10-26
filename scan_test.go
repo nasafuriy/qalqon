@@ -166,6 +166,15 @@ func TestVulnerableFixturesAreDetected(t *testing.T) {
 			"cfn-s3-bucket-public-access",
 			"cfn-security-group-open-to-world",
 		},
+		"crlf/nginx.conf": {
+			"nginx-autoindex-enabled",
+			"nginx-missing-content-type-options",
+			"nginx-missing-hsts",
+			"nginx-proxy-missing-host-header",
+			"nginx-server-tokens-on",
+			"nginx-weak-ssl-ciphers",
+			"nginx-weak-tls-protocols",
+		},
 		"deployment.yaml": {
 			"k8s-allow-privilege-escalation",
 			"k8s-capabilities-not-dropped",
@@ -404,5 +413,32 @@ func TestScanningASingleFileWorks(t *testing.T) {
 	findings := scan(t, "testdata/vulnerable/Dockerfile")
 	if len(findings) == 0 {
 		t.Fatal("expected findings when pointing at one file")
+	}
+}
+
+// The CRLF fixtures exist because almost every Windows checkout butts every
+// scanned file with \r\n. Line endings are folded once at read time, so the
+// same content with CRLF endings must produce exactly the same findings —
+// and the clean CRLF fixture must stay quiet with the rest of the tree.
+func TestCRLFContentProducesTheSameFindings(t *testing.T) {
+	idsFor := func(findings []engine.Finding) map[string]bool {
+		out := map[string]bool{}
+		for _, f := range findings {
+			out[f.TemplateID] = true
+		}
+		return out
+	}
+
+	lf, crlf := idsFor(scan(t, "testdata/vulnerable/nginx.conf")), idsFor(scan(t, "testdata/vulnerable/crlf/nginx.conf"))
+	if len(lf) == 0 {
+		t.Fatal("the LF fixture produced no findings — the test case is broken")
+	}
+	if len(crlf) != len(lf) {
+		t.Errorf("CRLF content changed the rule count: LF %v, CRLF %v", lf, crlf)
+	}
+	for id := range lf {
+		if !crlf[id] {
+			t.Errorf("CRLF content lost the finding %q", id)
+		}
 	}
 }

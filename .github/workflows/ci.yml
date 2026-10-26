@@ -33,6 +33,17 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      # Formatting is platform-independent, so it is asserted on every OS in
+      # the matrix rather than trusted to whoever happens to commit last.
+      - name: Gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "::error::these files need gofmt: $unformatted"
+            exit 1
+          fi
+        shell: bash
+
       # Job logs need a token to read through the API, so a failure here also
       # republishes the relevant lines as annotations, which stay public.
       - name: Test

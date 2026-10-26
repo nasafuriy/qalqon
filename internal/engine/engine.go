@@ -249,6 +249,8 @@ func scanFile(set *template.Set, root, path string, opts Options, read, bytesIn 
 		return nil
 	}
 
+	content = normalizeEndings(content)
+
 	// A rule library sitting in the repository would otherwise be scanned as
 	// though it were configuration: templates/compose.yaml matches the glob
 	// for a real compose file, and its example patterns then look like real
@@ -351,6 +353,20 @@ func isQalqonTemplate(content []byte) bool {
 	return tplID.Match(content) && tplFiles.Match(content) && tplMatchers.Match(content)
 }
 
+// normalizeEndings folds CRLF and bare CR line endings to LF, once, before
+// any pattern runs. On Windows almost every text file ends in CRLF; without
+// this, end-of-line anchors ($, (?m)^) and one-line captures behave
+// differently from the same file committed with LF, which is how a Windows
+// checkout quietly turns a rule off. Doing it here means templates are
+// written against LF everywhere and a fixture proves it stays that way.
+func normalizeEndings(content []byte) []byte {
+	if bytes.IndexByte(content, '\r') < 0 {
+		return content
+	}
+	content = bytes.ReplaceAll(content, []byte("\r\n"), []byte("\n"))
+	return bytes.ReplaceAll(content, []byte("\r"), []byte("\n"))
+}
+
 // isBinary uses the same heuristic as git: a NUL byte near the start.
 func isBinary(content []byte) bool {
 	limit := len(content)
@@ -368,11 +384,20 @@ func relSlash(root, p string) string {
 	return filepath.ToSlash(rel)
 }
 
+// caseInsensitive follows the filesystem's rule: on Windows, FILE.TXT and
+// file.txt are one file, so exclude globs match either spelling.
+var caseInsensitive = runtime.GOOS == "windows"
+
 func excluded(patterns []string, rel, base string) bool {
 	for _, pattern := range patterns {
 		pattern = strings.TrimSpace(pattern)
 		if pattern == "" {
 			continue
+		}
+		if caseInsensitive {
+			// Same rule as template matching: on Windows a file named
+			// README.md and readme.md are one file.
+			pattern, rel, base = strings.ToLower(pattern), strings.ToLower(rel), strings.ToLower(base)
 		}
 		if ok, _ := filepath.Match(pattern, base); ok {
 			return true

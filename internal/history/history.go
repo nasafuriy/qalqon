@@ -9,6 +9,7 @@ package history
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"os/exec"
@@ -199,6 +200,9 @@ func (w *walker) flush() {
 	}
 
 	content := []byte(w.buf.String())
+	// A CRLF file appears in a diff as a CR at the end of each added line;
+	// patterns are written against LF, so fold it here like scan does.
+	content = bytes.ReplaceAll(content, []byte("\r\n"), []byte("\n"))
 
 	// The same self-exclusion scan makes. A commit that adds a rule adds
 	// something shaped exactly like the credential the rule describes, and

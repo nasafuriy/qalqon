@@ -15,6 +15,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sort"
 	"strings"
 	"syscall"
@@ -89,6 +90,28 @@ func fileish(s string) bool {
 	return err == nil
 }
 
+// expandHome turns a leading ~ into the current user's home directory.
+//
+// Neither the Windows shell nor the Go standard library does this: on POSIX
+// it works only because the shell expanded it before the process ever saw
+// the argument, and PowerShell passes the tilde through untouched on the
+// Windows binary. First-class Windows support means the tool itself has to
+// understand it, from %USERPROFILE% rather than $HOME.
+func expandHome(path string) string {
+	if path != "~" && !strings.HasPrefix(path, "~"+string(filepath.Separator)) &&
+		!strings.HasPrefix(path, "~/") {
+		return path
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return path
+	}
+	if path == "~" {
+		return home
+	}
+	return filepath.Join(home, strings.TrimPrefix(strings.TrimPrefix(path, "~"), string(filepath.Separator)))
+}
+
 /* ------------------------------------------------------------------ scan */
 
 type stringList []string
@@ -144,7 +167,7 @@ func scan(args []string, stdout, stderr io.Writer) int {
 
 	root := "."
 	if fs.NArg() > 0 {
-		root = fs.Arg(0)
+		root = expandHome(fs.Arg(0))
 	}
 	if _, err := os.Stat(root); err != nil {
 		fmt.Fprintf(stderr, "qalqon: %v\n", err)
@@ -189,7 +212,7 @@ func scan(args []string, stdout, stderr io.Writer) int {
 
 	sink := stdout
 	if *outPath != "" {
-		f, err := os.Create(*outPath)
+		f, err := os.Create(expandHome(*outPath))
 		if err != nil {
 			fmt.Fprintf(stderr, "qalqon: %v\n", err)
 			return exitError
@@ -333,7 +356,7 @@ func scanHistory(args []string, stdout, stderr io.Writer) int {
 
 	root := "."
 	if fs.NArg() > 0 {
-		root = fs.Arg(0)
+		root = expandHome(fs.Arg(0))
 	}
 
 	set, code := loadTemplates(dirs, *noBuiltin, stderr)
@@ -387,7 +410,7 @@ func scanHistory(args []string, stdout, stderr io.Writer) int {
 
 	sink := stdout
 	if *outPath != "" {
-		f, err := os.Create(*outPath)
+		f, err := os.Create(expandHome(*outPath))
 		if err != nil {
 			fmt.Fprintf(stderr, "qalqon: %v\n", err)
 			return exitError
@@ -465,7 +488,7 @@ func scanDeps(args []string, stdout, stderr io.Writer) int {
 
 	root := "."
 	if fs.NArg() > 0 {
-		root = fs.Arg(0)
+		root = expandHome(fs.Arg(0))
 	}
 	if _, err := os.Stat(root); err != nil {
 		fmt.Fprintf(stderr, "qalqon: %v\n", err)
@@ -533,7 +556,7 @@ func scanDeps(args []string, stdout, stderr io.Writer) int {
 
 	sink := stdout
 	if *outPath != "" {
-		f, err := os.Create(*outPath)
+		f, err := os.Create(expandHome(*outPath))
 		if err != nil {
 			fmt.Fprintf(stderr, "qalqon: %v\n", err)
 			return exitError
@@ -680,7 +703,7 @@ func scanTargets(args []string, stdout, stderr io.Writer) int {
 
 	targets := append([]string{}, fs.Args()...)
 	if *listFile != "" {
-		lines, err := readLines(*listFile)
+		lines, err := readLines(expandHome(*listFile))
 		if err != nil {
 			fmt.Fprintf(stderr, "qalqon: %v\n", err)
 			return exitError
@@ -874,7 +897,7 @@ func validate(args []string, stdout, stderr io.Writer) int {
 
 	total, bad := 0, 0
 	for _, dir := range args {
-		set, errs := template.Load(os.DirFS(dir), ".")
+		set, errs := template.Load(os.DirFS(expandHome(dir)), ".")
 		total += set.Len()
 		for _, err := range errs {
 			bad++
@@ -917,7 +940,7 @@ func loadTemplates(dirs []string, noBuiltin bool, stderr io.Writer) (*template.S
 	}
 
 	for _, dir := range dirs {
-		set, errs := template.Load(os.DirFS(dir), ".")
+		set, errs := template.Load(os.DirFS(expandHome(dir)), ".")
 		for _, err := range errs {
 			fmt.Fprintf(stderr, "qalqon: %s: %v\n", dir, err)
 		}

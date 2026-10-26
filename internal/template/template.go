@@ -13,6 +13,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 
@@ -449,6 +450,13 @@ func matchGlob(pattern, rel, base string) bool {
 	p := strings.TrimPrefix(pattern, "./")
 	p = strings.TrimPrefix(p, "**/")
 
+	if caseInsensitive {
+		// Windows filesystems are case-insensitive; Dockerfile and dockerfile
+		// are the same file, so a pattern that only matches one of them is a
+		// rule that silently never fires for half the team.
+		p, rel, base = strings.ToLower(p), strings.ToLower(rel), strings.ToLower(base)
+	}
+
 	if !strings.Contains(p, "/") {
 		ok, _ := path.Match(p, base)
 		return ok
@@ -466,6 +474,22 @@ func matchGlob(pattern, rel, base string) bool {
 		}
 	}
 	return false
+}
+
+// caseInsensitive records that the local filesystem treats names as
+// case-insensitive, as Windows does. Glob matching follows the filesystem's
+// rule rather than the rule of whoever committed the pattern.
+var caseInsensitive = runtime.GOOS == "windows"
+
+// SetCaseInsensitive overrides the platform default. Tests use it to exercise
+// both behaviours on every operating system.
+func SetCaseInsensitive(v bool) { caseInsensitive = v }
+
+func caseMatch(a, b string) bool {
+	if caseInsensitive {
+		a, b = strings.ToLower(a), strings.ToLower(b)
+	}
+	return a == b
 }
 
 // Set is a validated, ordered collection of templates.

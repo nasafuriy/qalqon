@@ -10,4 +10,9 @@
 # in the language statistics and in diffs.
 testdata/** linguist-detectable=true
 
+# The CRLF fixtures ARE the line-ending regression test. Normalising them to
+# LF at commit time would delete the case they exist to catch.
+testdata/clean/crlf/** -text
+testdata/vulnerable/crlf/** -text
+
 docs/*.png linguist-documentation=true
