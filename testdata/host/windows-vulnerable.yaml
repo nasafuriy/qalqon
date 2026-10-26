@@ -1,0 +1,57 @@
+# Fixture: a deliberately misconfigured Windows machine, reported in exactly
+# the shape the probers answer in. The test suite loads this file directly,
+# so the host audit is tested without needing a real Windows system.
+defender:
+  available: "true"
+  realtime_protection: "false"
+  tamper_protection: "false"
+  exclusion_path_0: "d:\\"
+  exclusion_path_1: "c:\\users\\dev\\appdata\\local\\temp\\build"
+  exclusion_path_2: "c:\\projects\\legit-dir"
+  exclusion_process_0: "c:\\users\\dev\\appdata\\roaming\\dropper.exe"
+firewall:
+  available: "true"
+  domain_active: "true"
+  standard_active: "true"
+  public_active: "false"
+rdp:
+  available: "true"
+  enabled: "true"
+  nla: "false"
+  port: "13389"
+  port_nondefault: "true"
+smb:
+  smb1: "true"
+lsa:
+  available: "true"
+  ppl: "false"
+  use_logon_credential: "true"
+uac:
+  available: "true"
+  enable_lua: "false"
+  consent_prompt: "0"
+bitlocker:
+  available: "true"
+  os_volume_protected: "false"
+update:
+  available: "true"
+  auoptions: "1"
+accounts:
+  available: "true"
+  guest_active: "true"
+  administrator_active: "true"
+  password_min_length: "4"
+  password_min_length_ok: "false"
+  password_max_age_unlimited: "true"
+  blank_password_forbidden: "false"
+autoruns:
+  run_0: "c:\\users\\dev\\appdata\\local\\temp\\dropper.exe"
+  run_1: "c:\\users\\dev\\appdata\\roaming\\acme\\sponsor.exe"
+services:
+  service_path_0: "\"c:\\program files\\quoted and fine\\svc.exe\""
+  service_path_1: "c:\\program files\\unquoted name\\svc.exe"
+  service_path_2: "c:\\users\\dev\\appdata\\local\\acme\\small.exe"
+ports:
+  listener_0: "0.0.0.0:8443 pid=4211"
+  listener_1: "127.0.0.1:8080 pid=999"
+  pid_4211: "acmetool"

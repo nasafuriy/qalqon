@@ -25,6 +25,7 @@ import (
 	"github.com/nasafuriy/qalqon/internal/deps"
 	"github.com/nasafuriy/qalqon/internal/engine"
 	"github.com/nasafuriy/qalqon/internal/history"
+	"github.com/nasafuriy/qalqon/internal/host"
 	"github.com/nasafuriy/qalqon/internal/output"
 	"github.com/nasafuriy/qalqon/internal/probe"
 	"github.com/nasafuriy/qalqon/internal/template"
@@ -71,6 +72,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return scanDeps(rest, stdout, stderr)
 	case "history":
 		return scanHistory(rest, stdout, stderr)
+	case "host":
+		return hostAudit(rest, stdout, stderr)
 	default:
 		// Allow "qalqon ." as shorthand for "qalqon scan .".
 		if strings.HasPrefix(command, "-") || fileish(command) {
@@ -305,6 +308,203 @@ func discoverTargets(hosts []string, spec string, timeout time.Duration,
 		}
 	}
 	return out, nil
+}
+
+/* ------------------------------------------------------------------ host */
+
+// hostAudit audits the machine the binary runs on: the Windows defenses the
+// registry records — Defender, firewall profiles, RDP, SMBv1, LSA, UAC,
+// BitLocker, the autorun entries — plus a small Linux/macOS parity subset.
+//
+// Everything is read-only, always. Nothing under this command writes a
+// registry value, changes a service, or launches anything but the built-in
+// status commands the probes document. Rights it needs and does not have
+// become explicit "skipped" lines rather than silent omissions.
+func hostAudit(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("host", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+
+	var (
+		dirs       stringList
+		severities stringList
+		tags       stringList
+		ids        stringList
+		probes     stringList
+	)
+	fs.Var(&dirs, "t", "extra template directory (repeatable)")
+	fs.Var(&severities, "severity", "only run templates with these severities")
+	fs.Var(&tags, "tags", "only run templates carrying these tags")
+	fs.Var(&ids, "id", "only run these template ids")
+	fs.Var(&probes, "probe", "run only these probes, e.g. -probe defender,firewall")
+
+	facts := fs.Bool("facts", false, "print the raw probed facts and stop, without matching rules")
+	concurrency := fs.Int("c", 4, "probes in parallel")
+	minSeverity := fs.String("min-severity", "", "skip templates below this severity")
+	failOn := fs.String("fail-on", "low", "exit 1 at this severity or above (none disables)")
+	noBuiltin := fs.Bool("no-builtin", false, "ignore the embedded template library")
+
+	asJSON := fs.Bool("json", false, "write a JSON report")
+	asJSONL := fs.Bool("jsonl", false, "write one JSON finding per line")
+	asSARIF := fs.Bool("sarif", false, "write SARIF 2.1.0")
+	outPath := fs.String("o", "", "write to this file instead of stdout")
+	quiet := fs.Bool("quiet", false, "findings only")
+	stats := fs.Bool("stats", false, "print timing")
+	forceColor := fs.Bool("color", false, "force ANSI colour")
+	noColor := fs.Bool("no-color", false, "disable ANSI colour")
+
+	fs.Usage = func() { usage(stderr) }
+	if err := fs.Parse(reorder(fs, args)); err != nil {
+		return exitError
+	}
+
+	if *facts {
+		return hostFactsDump(probes, stdout, stderr)
+	}
+
+	set, code := loadTemplates(dirs, *noBuiltin, stderr)
+	if code != exitOK {
+		return code
+	}
+
+	var min template.Severity
+	if *minSeverity != "" {
+		parsed, err := template.ParseSeverity(*minSeverity)
+		if err != nil {
+			fmt.Fprintf(stderr, "qalqon: %v\n", err)
+			return exitError
+		}
+		min = parsed
+	}
+
+	hostSet := set.Filter(min, severities, tags, ids).OfKind(template.KindHost)
+	if hostSet.Len() == 0 {
+		fmt.Fprintln(stderr, "qalqon: no host templates match those filters")
+		return exitError
+	}
+	// PowerShell history is ordinary text: the secret rules from the file
+	// library are the ones that know what a credential looks like.
+	secretSet := set.OfKind(template.KindFile).
+		Filter("", nil, stringList{"secret"}, nil)
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	findings, runStats, skipped, err := host.Run(ctx, hostSet, secretSet, host.Options{
+		Probes:      probes,
+		Concurrency: *concurrency,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "qalqon: %v\n", err)
+		return exitError
+	}
+
+	sink := stdout
+	if *outPath != "" {
+		f, err := os.Create(expandHome(*outPath))
+		if err != nil {
+			fmt.Fprintf(stderr, "qalqon: %v\n", err)
+			return exitError
+		}
+		defer f.Close()
+		sink = f
+	}
+
+	switch {
+	case *asSARIF:
+		err = output.SARIF(sink, findings, version)
+	case *asJSONL:
+		err = output.JSONL(sink, findings)
+	case *asJSON:
+		err = output.JSONHosts(sink, findings, skipped, hostStats(runStats), version)
+	default:
+		err = output.Text(sink, findings, hostStats(runStats), output.TextOptions{
+			Color:   *outPath == "" && output.ColorEnabled(*forceColor, *noColor),
+			Quiet:   *quiet,
+			Stats:   *stats,
+			Version: version,
+			Unit:    "probes",
+			Skipped: hostSkips(skipped),
+		})
+	}
+	if err != nil {
+		fmt.Fprintf(stderr, "qalqon: %v\n", err)
+		return exitError
+	}
+
+	if strings.EqualFold(*failOn, "none") || len(findings) == 0 {
+		return exitOK
+	}
+	threshold, err := template.ParseSeverity(*failOn)
+	if err != nil {
+		fmt.Fprintf(stderr, "qalqon: %v\n", err)
+		return exitError
+	}
+	if output.Highest(findings).Rank() >= threshold.Rank() {
+		return exitFindings
+	}
+	return exitOK
+}
+
+// hostFactsDump prints what the probes found this run, without matching any
+// rules: the honest interface for "what did your tool look at before it
+// judged anything". Probes that cannot answer print nothing and say why on
+// stderr, so a partial audit is never passed off as a whole one.
+func hostFactsDump(probes stringList, stdout, stderr io.Writer) int {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	results := make([]host.NamedFacts, 0, len(host.SelectProbes(probes)))
+	var failures []string
+	for _, p := range host.SelectProbes(probes) {
+		facts, err := p.Probe(ctx)
+		if err != nil {
+			failures = append(failures, fmt.Sprintf("%s: %v", p.Name(), err))
+			continue
+		}
+		results = append(results, host.NamedFacts{Name: p.Name(), Facts: facts})
+	}
+
+	for _, r := range results {
+		fmt.Fprintf(stdout, "[%s]\n", r.Name)
+		for _, line := range host.SortedFacts(r.Facts) {
+			fmt.Fprintln(stdout, "  "+line)
+		}
+		fmt.Fprintln(stdout)
+	}
+	for _, f := range failures {
+		fmt.Fprintf(stderr, "qalqon: probe unavailable: %s\n", f)
+	}
+	if len(results) == 0 && len(failures) > 0 {
+		return exitError
+	}
+	return exitOK
+}
+
+// hostStats reshapes the host run counters into what the shared output
+// code already prints: probes walked, times, templates.
+func hostStats(h host.Stats) engine.Stats {
+	return engine.Stats{
+		FilesWalked:  int64(h.PartsProbed),
+		FilesRead:    int64(h.PartsProbed),
+		BytesRead:    int64(h.FactsTotal),
+		TemplatesRun: h.TemplatesRun,
+		Duration:     h.Duration,
+	}
+}
+
+// hostSkips reduces the skip list to the labels worth printing once each.
+func hostSkips(skipped []host.Skipped) []string {
+	var labels []string
+	seen := map[string]bool{}
+	for _, s := range skipped {
+		// Errors from probers without a name are already on stderr.
+		if s.Part == "" || seen[s.Part] {
+			continue
+		}
+		seen[s.Part] = true
+		labels = append(labels, s.Part)
+	}
+	return labels
 }
 
 /* ---------------------------------------------------------------- history */
@@ -1014,9 +1214,21 @@ USAGE
   qalqon target <url>... [flags]   check hosts you run: headers, cookies, TLS
   qalqon deps <path> [flags]       check dependency versions against osv.dev
   qalqon history <path> [flags]    look for secrets in commits, not just files
+  qalqon host [flags]              audit the machine this runs on (read-only)
   qalqon templates [flags]         list the templates that would run
   qalqon validate <dir>            check your own templates parse
   qalqon version
+
+HOST FLAGS
+  -probe LIST       run only these probes, e.g. -probe defender,firewall
+  -facts            print the raw probed facts and stop, before matching rules
+  -c N              probes in parallel
+
+  Reads registry defence settings, service definitions, autorun entries and
+  listener state; on Linux and macOS, the /proc/sys parity subset. Strictly
+  read-only. Probes that need administrator rights on a non-elevated
+  process are skipped and named, so an audit is never quietly narrower
+  than it looks.
 
 DEPS FLAGS
   -list             list what was found and stop, without querying

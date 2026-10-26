@@ -1,0 +1,7 @@
+# Fixture: raw PowerShell history text, as the history probe reports it.
+# The secret rules from the file library run over this directly.
+history: |
+  git push origin main
+  setx AWS_ACCESS_KEY_ID AKIAIOSFODNN7EXAMPLE
+  az login --tenant example-tenant
+  Set-MpPreference -DisableRealtimeMonitoring $true

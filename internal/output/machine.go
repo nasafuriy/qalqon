@@ -6,6 +6,7 @@ import (
 	"io"
 
 	"github.com/nasafuriy/qalqon/internal/engine"
+	"github.com/nasafuriy/qalqon/internal/host"
 	"github.com/nasafuriy/qalqon/internal/template"
 )
 
@@ -111,6 +112,59 @@ func JSONL(w io.Writer, findings []engine.Finding) error {
 		}
 	}
 	return nil
+}
+
+// HostReport is the shape of --json output for a host audit. It carries
+// findings and the probes this machine could not answer; the raw facts are
+// available through `qalqon host -facts`, which prints them unjudged.
+type HostReport struct {
+	Tool     string           `json:"tool"`
+	Version  string           `json:"version"`
+	Mode     string           `json:"mode"`
+	Findings []engine.Finding `json:"findings"`
+	Skipped  []string         `json:"skipped,omitempty"`
+	Summary  Summary          `json:"summary"`
+}
+
+// JSONHosts writes the machine-readable report for a host audit, including
+// the facts behind every finding.
+func JSONHosts(w io.Writer, findings []engine.Finding, skipped []host.Skipped, stats engine.Stats, version string) error {
+	bySeverity := map[string]int{}
+	for s, n := range Counts(findings) {
+		bySeverity[string(s)] = n
+	}
+	if findings == nil {
+		findings = []engine.Finding{}
+	}
+
+	var skips []string
+	seen := map[string]bool{}
+	for _, s := range skipped {
+		if s.Part == "" || seen[s.Part] {
+			continue
+		}
+		seen[s.Part] = true
+		skips = append(skips, s.Part)
+	}
+
+	report := HostReport{
+		Tool:     "qalqon",
+		Version:  version,
+		Mode:     "host",
+		Findings: findings,
+		Skipped:  skips,
+		Summary: Summary{
+			Total:        len(findings),
+			BySeverity:   bySeverity,
+			FilesWalked:  stats.FilesWalked,
+			TemplatesRun: stats.TemplatesRun,
+			DurationMS:   stats.Duration.Milliseconds(),
+		},
+	}
+
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	return enc.Encode(report)
 }
 
 /* ------------------------------------------------------------------ SARIF */

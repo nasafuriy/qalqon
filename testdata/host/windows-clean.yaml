@@ -1,0 +1,47 @@
+# Fixture: the same Windows machine with every checked setting hardened.
+# This is the false-positive guard for the host audit: it must produce no
+# findings at all, the way a good machine answers.
+defender:
+  available: "true"
+  realtime_protection: "true"
+  tamper_protection: "true"
+  exclusion_path_0: "c:\\program files\\vendor\\signed-tool-dir"
+  exclusion_process_0: "c:\\program files\\vendor\\compiler.exe"
+firewall:
+  available: "true"
+  domain_active: "true"
+  standard_active: "true"
+  public_active: "true"
+rdp:
+  available: "true"
+  enabled: "false"
+smb:
+  smb1: "false"
+lsa:
+  available: "true"
+  ppl: "true"
+uac:
+  available: "true"
+  enable_lua: "true"
+  consent_prompt: "5"
+bitlocker:
+  available: "true"
+  os_volume_protected: "true"
+update:
+  available: "true"
+  auoptions: "default"
+accounts:
+  available: "true"
+  guest_active: "false"
+  administrator_active: "false"
+  password_min_length: "14"
+  password_min_length_ok: "true"
+  password_max_age_unlimited: "false"
+  blank_password_forbidden: "true"
+autoruns:
+  run_0: "c:\\program files\\vendor\\app\\start.exe"
+services:
+  service_path_0: "\"c:\\program files\\vendor\\svc.exe\""
+ports:
+  listener_0: "127.0.0.1:5432 pid=421"
+  pid_421: "postgres"

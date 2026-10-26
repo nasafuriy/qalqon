@@ -1,0 +1,5 @@
+# Fixture: a clean PowerShell history. Must produce no findings.
+history: |
+  git push origin main
+  az login --tenant example-tenant
+  docker compose ps

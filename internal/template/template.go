@@ -107,6 +107,11 @@ const (
 	KindFile = "file"
 	// KindHTTP matches against one response fetched from a target you control.
 	KindHTTP = "http"
+	// KindHost matches against facts probed from the local machine the
+	// binary runs on, without changing anything. Each prober becomes one
+	// addressable part, rendered as "key: value" lines exactly like the
+	// HTTP tls part, so the matcher engine reads it unchanged.
+	KindHost = "host"
 )
 
 // Parts of an HTTP response a matcher can be pointed at.
@@ -202,8 +207,12 @@ func (t *Template) Validate() error {
 		if len(t.Files) > 0 {
 			return fmt.Errorf("%s: an http template must not set files", t.ID)
 		}
+	case KindHost:
+		if len(t.Files) > 0 {
+			return fmt.Errorf("%s: a host template must not set files", t.ID)
+		}
 	default:
-		return fmt.Errorf("%s: type must be %q or %q, got %q", t.ID, KindFile, KindHTTP, t.Type)
+		return fmt.Errorf("%s: type must be %q, %q or %q, got %q", t.ID, KindFile, KindHTTP, KindHost, t.Type)
 	}
 
 	if len(t.Matchers) == 0 {
@@ -212,9 +221,19 @@ func (t *Template) Validate() error {
 
 	for i := range t.Matchers {
 		m := &t.Matchers[i]
-		if t.Type == KindFile {
+		switch t.Type {
+		case KindFile:
 			if m.Part != "" {
-				return fmt.Errorf("%s: matcher %d sets part, which only applies to http templates", t.ID, i+1)
+				return fmt.Errorf("%s: matcher %d sets part, which only applies to http and host templates", t.ID, i+1)
+			}
+			continue
+		case KindHost:
+			// Host parts are named after the probe that produced them. The
+			// set of probes is a platform question, not a template-format
+			// one, so any non-empty part is accepted here and a missing
+			// probe simply means the template never runs (see host.Run).
+			if m.Part == "" {
+				return fmt.Errorf("%s: matcher %d does not name a host part (a probe, e.g. defender, firewall, rdp)", t.ID, i+1)
 			}
 			continue
 		}

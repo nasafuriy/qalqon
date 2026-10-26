@@ -1,0 +1,11 @@
+# Fixture: a Linux machine with the audited kernel settings intentionally
+# loose. Feeds the sysctl part; the Windows parts are absent here, which is
+# itself one of the tested states — rules naming them must skip.
+sysctl:
+  ip_forward: "1"
+  aslr: "0"
+  kptr_restrict: "0"
+  dmesg_restrict: "0"
+  unprivileged_bpf_disabled: "0"
+  unprivileged_userns_clone: "1"
+  yama_ptrace_scope: "0"

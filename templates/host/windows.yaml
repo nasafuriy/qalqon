@@ -1,0 +1,503 @@
+# Windows host audit rules. Each name addresses one fact prober; the prober
+# rendered its findings as "key: value" lines and every matcher below reads
+# one of those parts. Additions here must come with a case in the host
+# fixture tests and a prober on the platform they describe.
+
+id: host-defender-realtime-off
+type: host
+info:
+  name: Defender real-time protection is off
+  severity: critical
+  description: >-
+    Without real-time scanning, every process launched on this machine runs
+    unobserved until someone notices. Malware that waits for exactly this
+    state does not have to wait long.
+  remediation: >-
+    Set "Set-MpPreference -DisableRealtimeMonitoring $false" or re-enable
+    real-time protection in Windows Security, then check what turned it off.
+  tags: [host, windows, defender, malware]
+
+matchers:
+  - part: defender
+    patterns: ['(?m)^realtime_protection: false$']
+
+---
+
+id: host-defender-tamper-protection-off
+type: host
+info:
+  name: Defender tamper protection is off
+  severity: high
+  description: >-
+    Tamper protection is the layer that stops a compromised process — or a
+    user clicking through a prompt — from quietly disabling Defender itself.
+    With it off, real-time protection is a suggestion rather than a control.
+  remediation: Enable tamper protection in Windows Security > Virus & threat protection settings.
+  tags: [host, windows, defender]
+
+matchers:
+  - part: defender
+    patterns: ['(?m)^tamper_protection: false$']
+
+---
+
+id: host-defender-whole-drive-exclusion
+type: host
+info:
+  name: Entire drive excluded from Defender scanning
+  severity: high
+  description: >-
+    An exclusion covering the root of a drive disables scanning for
+    everything on it, which is how ransomware first became known for
+    quoting Defender exclusion flags. Whole-drive exclusions are a wild
+    card, not a policy.
+  remediation: >-
+    Remove the drive-level exclusion and exclude specific signed tools or
+    directories instead, each justified by a named workload.
+  reference:
+    - https://learn.microsoft.com/en-us/defender-endpoint/configure-exclusions
+  tags: [host, windows, defender, exclusion]
+
+matchers:
+  - part: defender
+    patterns: ['(?m)^exclusion_path_\d+: [a-z]:\\?\s*$']
+
+---
+
+id: host-defender-developer-dirs-exclusion
+type: host
+info:
+  name: Build or temp directories excluded from Defender
+  severity: high
+  description: >-
+    Temp, AppData and user-prefix exclusions cover exactly the directories
+    where downloads, droppers and package-installers run first. They are a
+    performance setting from 2016 that now removes the most-watched part of
+    the filesystem from observation.
+  remediation: >-
+    Remove the directory exclusion; exclude named build tools by process or
+    by the narrowest directory that holds them.
+  tags: [host, windows, defender, exclusion]
+
+matchers:
+  - part: defender
+    patterns: ['(?m)^exclusion_(?:path|process)_\d+: [^ ]*(\\temp\\|\\appdata\\|\\users\\)']
+
+---
+
+id: host-firewall-profile-off
+type: host
+info:
+  name: A firewall profile is inactive
+  severity: high
+  description: >-
+    Domain, private and public profiles are read per network the machine
+    joins; one inactive profile is the state a laptop is in on every
+    conference or café Wi-Fi that does not trip the domain profile. The
+    firewall is the only thing standing between a listening service and its
+    network.
+  remediation: 'Set-NetFirewallProfile -All -Enabled True'
+  tags: [host, windows, firewall, network]
+
+matchers:
+  - part: firewall
+    patterns: ['(?m)^(?:domain|public|standard)_active: false$']
+
+---
+
+id: host-rdp-without-nla
+type: host
+info:
+  name: Remote Desktop without network-level authentication
+  severity: high
+  description: >-
+    Without NLA an attacker can open an RDP session far enough to trigger
+    pre-authentication parsing, which is the class of bug NTLM relaying and
+    BlueTeam reruns of CVE-2019-0708 live in. One checkbox stands between
+    the pre-auth surface and the internet.
+  remediation: >-
+    Set "UserAuthentication" to 1 under Terminal Server\WinStations\RDP-Tcp,
+    or enable "Require computers to use Network Level Authentication" in
+    System Properties > Remote.
+  tags: [host, windows, rdp, authentication]
+
+condition: and
+matchers:
+  - part: rdp
+    context: true
+    patterns: ['(?m)^enabled: true$']
+  - part: rdp
+    patterns: ['(?m)^nla: false$']
+
+---
+
+id: host-rdp-nondefault-port
+type: host
+info:
+  name: Remote Desktop on a non-default port
+  severity: low
+  description: >-
+    Moving RDP off 3389 is not a control — port scans find anything in
+    minutes — but a nonstandard port usually means someone configured it
+    deliberately, and the change deserves a look in the audit trail.
+  remediation: Confirm the port change was intentional and documented; if it was aimed at stealth, revert it.
+  tags: [host, windows, rdp, network, hardening]
+
+matchers:
+  - part: rdp
+    context: true
+    patterns: ['(?m)^enabled: true$']
+    condition: and
+  - part: rdp
+    patterns: ['(?m)^port_nondefault: true$']
+
+---
+
+id: host-rdp-enabled
+type: host
+info:
+  name: Remote Desktop is enabled
+  severity: info
+  description: >-
+    RDP is a routine administrative tool and often fully intended. It is
+    listed here because it is also one of the two or three most-attacked
+    services on any Windows machine, and its being on is a decision worth
+    being able to point at.
+  remediation: Disable RDP if nothing depends on it; if it stays, keep NLA on and firewall the port.
+  tags: [host, windows, rdp, network]
+
+matchers:
+  - part: rdp
+    patterns: ['(?m)^enabled: true$']
+
+---
+
+id: host-smb1-enabled
+type: host
+info:
+  name: SMBv1 protocol enabled on the server
+  severity: critical
+  description: >-
+    SMBv1 is cryptographically unauthenticated legacy networking whose
+    widely-exploited flaws — EternalBlue among them — do not exist in
+    SMBv2/v3. Nothing current apart from ancient installs still needs it.
+  remediation: >-
+    Set "Set-SmbServerConfiguration -EnableSMB1Protocol $false" and remove
+    the SMB1 feature; inventory anything that breaks and upgrade it instead.
+  reference:
+    - https://learn.microsoft.com/en-us/windows-server/storage/file-server/smbv1-not-secure
+  tags: [host, windows, smb, legacy]
+
+matchers:
+  - part: smb
+    patterns: ['(?m)^smb1: true$']
+
+---
+
+id: host-lsa-not-protected
+type: host
+info:
+  name: LSA does not run as a protected process
+  severity: high
+  description: >-
+    Without RunAsPPL, LSASS memory is readable by any process with debugger
+    rights, which is the whole technique behind credential dumping. A
+    protected-process LSA is what makes the memory of this host forgettable.
+  remediation: >-
+    Set HKLM\SYSTEM\CurrentControlSet\Control\Lsa\RunAsPPL (DWORD) to 1 and
+    restart. UEFI/LsaPpl or hardware-backed options apply where GPO cannot.
+  reference:
+    - https://learn.microsoft.com/en-us/windows-server/security/credentials-protection-and-management/configuring-additional-lsa-protection
+  tags: [host, windows, lsa, credentials]
+
+matchers:
+  - part: lsa
+    patterns: ['(?m)^ppl: false$']
+
+---
+
+id: host-lsa-wdigest-plaintext
+type: host
+info:
+  name: WDigest keeps plaintext passwords in memory
+  severity: critical
+  description: >-
+    UseLogonCredential=1 makes Windows store every logon's cleartext
+    password in LSASS until reboot, which turns one compromise into every
+    account the user touched. It exists for ancient compatibility only.
+  remediation: Set HKLM\SYSTEM\CurrentControlSet\Control\Lsa\UseLogonCredential (DWORD) to 0 and sign the machine out.
+  tags: [host, windows, lsa, credentials]
+
+matchers:
+  - part: lsa
+    patterns: ['(?m)^use_logon_credential: true$']
+
+---
+
+id: host-uac-disabled
+type: host
+info:
+  name: User Account Control filtering disabled
+  severity: critical
+  description: >-
+    With EnableLUA=0 every process runs with the full token — there is no
+    split, no prompt, no filtered administrator. It is the state people
+    reach for when a legacy installer misbehaves and never unset.
+  remediation: >-
+    Set HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\EnableLUA
+    back to 1 and restart.
+  tags: [host, windows, uac, privilege]
+
+matchers:
+  - part: uac
+    patterns: ['(?m)^enable_lua: false$']
+
+---
+
+id: host-uac-prompt-suppressed
+type: host
+info:
+  name: Elevation happens without a UAC prompt
+  severity: high
+  description: >-
+    ConsentPromptBehaviorAdmin=0 silently approves every elevation request.
+    The UAC prompt is the one human check on the most privilege-affecting
+    action Windows has; a machine where it does not appear elevates at
+    process speed.
+  remediation: >-
+    Restore ConsentPromptBehaviorAdmin to 5 (secure desktop) and
+    EnableInstallerDetection to its default.
+  tags: [host, windows, uac, privilege]
+
+matchers:
+  - part: uac
+    patterns: ['(?m)^consent_prompt: 0$']
+
+---
+
+id: host-bitlocker-os-volume-off
+type: host
+info:
+  name: OS volume unprotected by BitLocker
+  severity: medium
+  description: >-
+    An unencrypted OS volume gives a thief — or anyone recovering the disk —
+    the whole filesystem: credentials, browser stores, keys, documents. TPM
+    alone does nothing until BitLocker is on.
+  remediation: >-
+    Run "manage-bde -on <drive>" for the system drive; confirm the recovery
+    key escrowed before declaring it done.
+  tags: [host, windows, bitlocker, encryption]
+
+matchers:
+  - part: bitlocker
+    patterns: ['(?m)^os_volume_protected: false$']
+
+---
+
+id: host-update-auto-discovery-off
+type: host
+info:
+  name: Windows Update set to never check
+  severity: high
+  description: >-
+    AUOptions=1 means the machine never looks for updates on its own.
+    Every patch published since that setting took effect is a public
+    vulnerability this host carries indefinitely.
+  remediation: >-
+    Remove the AUOptions=1 policy under WindowsUpdate\AU or set it to 3
+    (auto download and notify install) or higher.
+  tags: [host, windows, update, patching]
+
+matchers:
+  - part: update
+    patterns: ['(?m)^auoptions: 1$']
+
+---
+
+id: host-guest-account-active
+type: host
+info:
+  name: Built-in Guest account enabled
+  severity: high
+  description: >-
+    The Guest account has a blank password by design and normally no
+    authentication at all, so enabling it hands anonymous local — and
+    sometimes network — access to anyone who reaches the machine.
+  remediation: 'Run: net user Guest /active:no'
+  tags: [host, windows, accounts, authentication]
+
+matchers:
+  - part: accounts
+    patterns: ['(?m)^guest_active: true$']
+
+---
+
+id: host-administrator-account-active
+type: host
+info:
+  name: Built-in Administrator account enabled
+  severity: medium
+  description: >-
+    The built-in Administrator cannot be locked out by failed attempts. An
+    attacker who has its password — or who can reset it with sufficient
+    local access — owns the machine without appearing in the audit trail a
+    named account would leave.
+  remediation: 'Run: net user Administrator /active:no; use a named admin account instead.'
+  tags: [host, windows, accounts, privilege]
+
+matchers:
+  - part: accounts
+    patterns: ['(?m)^administrator_active: true$']
+
+---
+
+id: host-blank-passwords-usable
+type: host
+info:
+  name: Blank passwords usable for network logons
+  severity: high
+  description: >-
+    With LimitBlankPasswordUse off, any account without a password — guest
+    first among them — is reachable over the network with no credential at
+    all. This is the combination that turns a nameless share into an
+    anonymous login.
+  remediation: Set HKLM\SYSTEM\CurrentControlSet\Control\Lsa\LimitBlankPasswordUse to 1.
+  tags: [host, windows, accounts, authentication]
+
+matchers:
+  - part: accounts
+    patterns: ['(?m)^blank_password_forbidden: false$']
+
+---
+
+id: host-password-minimum-too-short
+type: host
+info:
+  name: Password minimum length below 8
+  severity: medium
+  description: >-
+    A minimum under eight characters is below every modern recommendation
+    and below what password-cracking tooling treats as trivial. The NIST
+    baseline is at least 8, and 15 for privileged accounts.
+  remediation: 'Run: net accounts /minpwlen:12 (10-14 for most policies).'
+  tags: [host, windows, accounts, authentication]
+
+matchers:
+  - part: accounts
+    patterns: ['(?m)^password_min_length_ok: false$']
+
+---
+
+id: host-password-max-age-unlimited
+type: host
+info:
+  name: Password change never required
+  severity: low
+  description: >-
+    Maximum password age of "unlimited" means a credential stolen years ago
+    keeps working. Without an expiry, breach radius is bounded only by the
+    user's habits.
+  remediation: 'Run: net accounts /maxpwage:90 — or longer, but not forever.'
+  tags: [host, windows, accounts, authentication]
+
+matchers:
+  - part: accounts
+    patterns: ['(?m)^password_max_age_unlimited: true$']
+
+---
+
+id: host-autorun-in-temp
+type: host
+info:
+  name: Autorun entry points into a temp directory
+  severity: critical
+  description: >-
+    A Run or RunOnce value launching from %TEMP% or a user-writable path is
+    the textbook dropper pattern: the entry runs at every logon whatever
+    dropped the file there last. Temp directories are nobody's place to
+    install software.
+  remediation: Open the Run key, delete the entry, identify what wrote it, and quarantine the file behind it.
+  tags: [host, windows, autorun, malware]
+
+matchers:
+  - part: autoruns
+    patterns: ['(?m)^run_\d+: [^ ]*\\temp\\']
+
+---
+
+id: host-autorun-in-appdata
+type: host
+info:
+  name: Autorun entry launches from a normally clean location
+  severity: medium
+  description: >-
+    User-profile autoruns are where legitimate apps also live — OneDrive,
+    Slack, Teams all launch from AppData — so this is a review finding, not
+    an alarm. What it is really asking: does someone with only user rights
+    have a program that runs on every one of your logons?
+  remediation: Check the binary is signed by the vendor and registered where the vendor installs it; remove what is not.
+  tags: [host, windows, autorun, persistence]
+
+matchers:
+  - part: autoruns
+    patterns: ['(?m)^run_\d+: [^ ]*\\appdata\\']
+
+---
+
+id: host-service-unquoted-path
+type: host
+info:
+  name: Service binary path unquoted with spaces
+  severity: high
+  description: >-
+    An unquoted "C:\Program Files\...\svc.exe" makes the service manager try
+    every prefix of the path as a program name too, so "C:\Program.exe" is
+    launched if it exists. A local user who can drop a file in the first
+    directory of the path owns the service.
+  remediation: >-
+    Quote the ImagePath value: "C:\Program Files\Vendor\service.exe" — or
+    install to a space-free directory.
+  reference:
+    - https://learn.microsoft.com/en-us/windows/win32/services/-async-service-registry-values
+  tags: [host, windows, services, privilege]
+
+matchers:
+  - part: services
+    patterns: ['(?m)^service_path_\d+: [a-z]:\\[^"]*[ ]']
+
+---
+
+id: host-service-binaries-in-user-writable-path
+type: host
+info:
+  name: Service binary installed in a user-writable location
+  severity: critical
+  description: >-
+    When a service — code running as SYSTEM sooner or later — launches from
+    Temp or a user profile, any local user can replace the binary and wait
+    for the next reboot.
+  remediation: Move the service image into Program Files with correct ACLs and repoint the ImagePath; audit how it got there.
+  tags: [host, windows, services, privilege]
+
+matchers:
+  - part: services
+    patterns: ['(?m)^service_path_\d+: [^ ]*(\\temp\\|\\appdata\\|\\users\\|\\public\\|\\windows\\temp\\)']
+
+---
+
+id: host-listener-on-wildcard
+type: host
+info:
+  name: Listener bound to every interface
+  severity: info
+  description: >-
+    Listening on 0.0.0.0 or :: means the firewall profile decides the
+    audience. Services meant for localhost that bind everywhere are the
+    quietest way a private service reaches the LAN.
+  remediation: 'Bind the service to 127.0.0.1 explicitly, or add a scoped firewall rule for it.'
+  tags: [host, windows, network, exposure]
+
+matchers:
+  - part: ports
+    patterns: ['(?m)^listener_\d+: (?:0\.0\.0\.0|\[?::\]?):\d+ pid=\d+']

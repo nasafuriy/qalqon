@@ -85,6 +85,11 @@ type TextOptions struct {
 	// Rules names what did the examining. Defaults to "templates"; a
 	// dependency scan checks versions against advisories instead.
 	Rules string
+	// Skipped names the probes a host audit could not answer on this
+	// machine. Printed once after the summary, because a narrowing of the
+	// audit that no one sees is indistinguishable from one that did not
+	// happen.
+	Skipped []string
 }
 
 // Text writes the report a person reads in a terminal or CI log.
@@ -203,7 +208,18 @@ func Text(w io.Writer, findings []engine.Finding, stats engine.Stats, opts TextO
 		fmt.Fprintf(w, "%sread %s files (%s) · %s%s\n",
 			p.dim, thousands(stats.FilesRead), humanBytes(stats.BytesRead), roundDuration(stats), p.reset)
 	}
+	if len(opts.Skipped) > 0 && !opts.Quiet {
+		fmt.Fprintf(w, "%sskipped: %s — no prober for %s on this platform, or it needs rights this process does not hold%s\n",
+			p.dim, strings.Join(opts.Skipped, ", "), pluralWords(len(opts.Skipped)), p.reset)
+	}
 	return nil
+}
+
+func pluralWords(n int) string {
+	if n == 1 {
+		return "it"
+	}
+	return "them"
 }
 
 // Counts tallies findings per severity.

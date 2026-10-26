@@ -235,14 +235,20 @@ func TestFileTemplatesDoNotRunAgainstTargets(t *testing.T) {
 	all := builtin(t)
 	http := all.OfKind(template.KindHTTP)
 	file := all.OfKind(template.KindFile)
+	host := all.OfKind(template.KindHost)
 
-	if http.Len()+file.Len() != all.Len() {
-		t.Fatalf("every template should be exactly one kind: %d http + %d file != %d",
-			http.Len(), file.Len(), all.Len())
+	if http.Len()+file.Len()+host.Len() != all.Len() {
+		t.Fatalf("every template should be exactly one kind: %d http + %d file + %d host != %d",
+			http.Len(), file.Len(), host.Len(), all.Len())
 	}
 	for _, tpl := range http.Templates {
 		if len(tpl.Files) != 0 {
 			t.Errorf("%s is an http template but declares file globs", tpl.ID)
+		}
+	}
+	for _, tpl := range host.Templates {
+		if len(tpl.Files) != 0 {
+			t.Errorf("%s is a host template but declares file globs", tpl.ID)
 		}
 	}
 }

@@ -1,0 +1,130 @@
+# Linux/macOS host parity subset. One prober reads /proc/sys; these rules
+# read its part. They mirror the Windows rules in intent: settings that
+# decide how much a compromise teaches an attacker.
+
+id: host-lin-ip-forward
+type: host
+info:
+  name: Kernel IPv4 forwarding enabled
+  severity: medium
+  description: >-
+    A host that forwards packets routes between every network its interfaces
+    can reach — the difference between a compromised host and a compromised
+    host that also bridges the lab to the office VLAN.
+  remediation: 'Set: sysctl net.ipv4.ip_forward=0 unless the machine is a router or container host.'
+  tags: [host, linux, network, hardening]
+
+matchers:
+  - part: sysctl
+    patterns: ['(?m)^ip_forward: 1$']
+
+---
+
+id: host-lin-aslr-off
+type: host
+info:
+  name: Address space randomisation disabled
+  severity: high
+  description: >-
+    randomize_va_space=0 removes the layout randomisation every memory-safe
+    mitigation chain assumes; an exploit written years ago still works
+    elsewhere will often work here first.
+  remediation: 'Set: sysctl kernel.randomize_va_space=2'
+  tags: [host, linux, hardening, memory]
+
+matchers:
+  - part: sysctl
+    patterns: ['(?m)^aslr: 0$']
+
+---
+
+id: host-lin-kernel-pointers-exposed
+type: host
+info:
+  name: Kernel pointers readable by unprivileged users
+  severity: medium
+  description: >-
+    kptr_restrict=0 lets any user read kernel addresses from /proc, which is
+    both an information leak and the first step of a KASLR-defeating
+    exploit.
+  remediation: 'Set: sysctl kernel.kptr_restrict=2 (or at minimum 1).'
+  tags: [host, linux, hardening, kernel]
+
+matchers:
+  - part: sysctl
+    patterns: ['(?m)^kptr_restrict: 0$']
+
+---
+
+id: host-lin-dmesg-readable
+type: host
+info:
+  name: Kernel log readable by unprivileged users
+  severity: low
+  description: >-
+    dmesg_restrict=0 exposes the kernel ring buffer to every local user,
+    including addresses and device names that map the kernel layout and
+    hardware for an attacker assembling an exploit.
+  remediation: 'Set: sysctl kernel.dmesg_restrict=1'
+  tags: [host, linux, hardening, logging]
+
+matchers:
+  - part: sysctl
+    patterns: ['(?m)^dmesg_restrict: 0$']
+
+---
+
+id: host-lin-unprivileged-bpf
+type: host
+info:
+  name: Unprivileged BPF allowed
+  severity: high
+  description: >-
+    unprivileged_bpf_disabled=0 lets any local user create eBPF programs.
+    The history of unprivileged BPF bugs is long enough that distribution
+    kernels ship the restriction on by default; turning it back off is a
+    decision no unattended server should make for itself.
+  remediation: 'Set: sysctl kernel.unprivileged_bpf_disabled=1'
+  tags: [host, linux, hardening, kernel]
+
+matchers:
+  - part: sysctl
+    patterns: ['(?m)^unprivileged_bpf_disabled: 0$']
+
+---
+
+id: host-lin-unprivileged-userns
+type: host
+info:
+  name: Unprivileged user namespaces unrestricted
+  severity: low
+  description: >-
+    Unprivileged user namespaces open a kernel attack surface to every local
+    user, and are behind a long list of container-escape CVEs. Some desktop
+    workloads need them; few servers do.
+  remediation: >-
+    If nobody on this host needs unprivileged containers, restrict namespace
+    creation to a group or disable it with your distribution's tooling.
+  tags: [host, linux, hardening, kernel]
+
+matchers:
+  - part: sysctl
+    patterns: ['(?m)^unprivileged_userns_clone: 1$']
+
+---
+
+id: host-lin-ptrace-unrestricted
+type: host
+info:
+  name: ptrace allowed on any process
+  severity: medium
+  description: >-
+    ptrace_scope=0 lets a process inspect and inject into another process it
+    owns, which turns one compromised app into every other app of that
+    user — browsers included.
+  remediation: 'Set: sysctl kernel.yama.ptrace_scope=1 (or 2).'
+  tags: [host, linux, hardening, kernel]
+
+matchers:
+  - part: sysctl
+    patterns: ['(?m)^yama_ptrace_scope: 0$']

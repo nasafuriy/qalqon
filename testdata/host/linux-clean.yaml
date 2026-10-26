@@ -1,0 +1,10 @@
+# Fixture: a hardened Linux /proc/sys configuration. The false-positive
+# guard for the POSIX part of the host audit: no findings at all.
+sysctl:
+  ip_forward: "0"
+  aslr: "2"
+  kptr_restrict: "2"
+  dmesg_restrict: "1"
+  unprivileged_bpf_disabled: "1"
+  unprivileged_userns_clone: "0"
+  yama_ptrace_scope: "2"
