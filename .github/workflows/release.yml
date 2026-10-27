@@ -125,6 +125,15 @@ jobs:
           \`\`\`
           EOF
 
-          gh release create "$TAG" dist/* \
-            --title "Qalqon $TAG" \
-            --notes-file notes.md
+          # Two runs can race when a tag is force-updated; whichever loses
+          # must refresh the winner rather than crash, and an upload after
+          # an interrupted publish must resume instead of refusing.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "release $TAG already exists - updating notes and re-uploading assets"
+            gh release edit "$TAG" --title "Qalqon $TAG" --notes-file notes.md
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" dist/* \
+              --title "Qalqon $TAG" \
+              --notes-file notes.md
+          fi

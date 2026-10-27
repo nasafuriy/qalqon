@@ -1309,8 +1309,9 @@ func listTemplates(args []string, stdout, stderr io.Writer) int {
 	for _, t := range set.Templates {
 		fmt.Fprintf(stdout, "%-*s  %-5s  %-8s  %s\n", width, t.ID, t.Type, t.Info.Severity, t.Info.Name)
 	}
-	fmt.Fprintf(stdout, "\n%d templates (%d file, %d http)\n",
-		set.Len(), set.OfKind(template.KindFile).Len(), set.OfKind(template.KindHTTP).Len())
+	fmt.Fprintf(stdout, "\n%d templates (%d file, %d http, %d host)\n",
+		set.Len(), set.OfKind(template.KindFile).Len(), set.OfKind(template.KindHTTP).Len(),
+		set.OfKind(template.KindHost).Len())
 	return exitOK
 }
 

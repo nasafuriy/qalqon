@@ -56,6 +56,16 @@ resolutions.
   engine as matchers, which is what lets the engine verify by re-running the
   rule.
 
+### Fixed
+
+- `go vet` refused `os.Geteuid == nil` in the non-Windows host probers, breaking
+  vet and test builds on linux and darwin; the root check now reads the value
+  directly.
+- The release workflow's publish step is idempotent: when two runs race on a
+  force-updated tag, the loser refreshes the winner's notes and uploads its
+  assets with `--clobber` instead of aborting.
+- `qalqon templates` counts host rules in its summary line.
+
 ### Still true
 
 - One binary, no configuration file, and scanning stays 100% offline.
