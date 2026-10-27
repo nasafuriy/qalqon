@@ -15,14 +15,9 @@ import (
 )
 
 // osAdminState reports whether the process is running as root, which is what
-// decides whether admin-gated probes answer or skip.
+// decides whether admin-gated probes answer or skip. Geteuid exists on every
+// platform this file compiles for, so there is nothing to check for nil.
 func osAdminState() bool {
-	if runtime.GOOS == "windows" {
-		return false
-	}
-	if os.Geteuid == nil {
-		return false
-	}
 	return os.Geteuid() == 0
 }
 
